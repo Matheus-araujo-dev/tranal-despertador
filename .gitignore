@@ -26,3 +26,7 @@ docs/captura-alarme-tocando.png
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Python (scripts auxiliares)
+__pycache__/
+*.pyc
