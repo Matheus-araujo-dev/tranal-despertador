@@ -1,0 +1,28 @@
+# Build do Rust
+/target
+
+# Artefatos temporarios de sessao (nao fazem parte do app)
+scripts/_*.py
+scripts/_*.ps1
+docs/_*.txt
+docs/_*.txt.err
+docs/_*.png
+docs/_*.json
+docs/captura-diagnostico*.png
+docs/captura-teste.png
+docs/captura-real.png
+docs/_tutu-revisao.txt
+
+# Capturas superadas pelo redesenho da interface (o dono pode apagar)
+docs/captura-interface.png
+docs/captura-interface-glow.png
+docs/captura-interface-final.png
+docs/captura-editor.png
+docs/captura-editor-glow.png
+docs/captura-alarme-lista.png
+docs/captura-alarme-tocando.png
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
