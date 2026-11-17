@@ -8,6 +8,7 @@ docs/_*.txt
 docs/_*.txt.err
 docs/_*.png
 docs/_*.json
+docs/_*.md
 docs/captura-diagnostico*.png
 docs/captura-teste.png
 docs/captura-real.png
