@@ -786,3 +786,24 @@ separador — antes ela era um texto solto na borda de baixo da janela.
 - Nenhum dado do owner foi mexido: o `last_rung = 2026-11-18` é o alarme das
   07:00 **tocando de verdade** hoje, e o card passou a oferecer "Repetir
   amanhã" — rearmar é decisão do owner.
+
+### 13.5 Quality gate (Dedé) desta rodada
+
+O **Dedé** (`hermes -p dede chat --query-file ... --oneshot --in D:\project-ai`)
+rodou de primeira: **PASS**, os **12 critérios de aceitação todos atendidos**,
+`required_actions` vazio e `warnings` vazio.
+
+Um único achado, de severidade **LOW**:
+
+> *"O relatório menciona corrigir o slider para mostrar '100%' e '12s', mas não
+> há verificação visual da mudança"* — recomendação: *"Incluir uma captura do
+> slider atualizado ou confirmar que o código reflete a alteração"*.
+
+Resposta: a captura **`docs/captura-config-v3.png`**, tirada do app
+instalado, mostra o slider do volume com **"100%"** (sem o espaço, era
+"100 %"). O outro caso ("12 s" → "12s") é o slider do *fade-in*, que só
+aparece com valor acima de zero — a correção está no código
+(`src/app.rs`, sufixo `"s"` no lugar de `" s"`), no mesmo lugar do `"%"`.
+
+O pedido ao Dedé está versionado em
+`docs/arquitetura/pedido-dede-quality-gate-rodada-layout.md`.
