@@ -661,3 +661,31 @@ uma só lugar (`src/icone.rs`).
 | "Sair" | App encerrado (o processo some) |
 | Controle negativo | Clique numa área vazia da barra **não** restaura a janela (o efeito vem do ícone, não do clique no vazio) |
 | Ícones promoted | `IsPromoted = 1` gravado pelo app, sem passo manual do dono |
+| Instalador rodado no PC do dono | App rodando do caminho instalado (pid 26848, ~157 MB), atalhos com o ícone, chave `Run` apontando para o exe instalado, `IsPromoted = 1` na chave nova e **dados do dono intactos** (alarme `al8a262d2c` às 07:00, `last_rung` null, `iniciar_com_o_windows=true`) |
+
+### 12.6 Quality gate (Dedé) desta rodada
+
+O quality gate é o **Dedé** (`hermes -p dede chat --query-file ... --oneshot`), e
+rodou de primeira: **PASS**, com os **12 critérios de aceitação todos
+atendidos**, `required_actions` vazio e `warnings` vazio.
+
+Um único achado, de severidade **LOW**: a sessão de desktop do owner ficou
+**não interativa** no fim da rodada (o `SetCursorPos` parou de mover o mouse e a
+resolução alternou entre 5120x1441 e 4160x1441), o que impediu a
+re-verificação **por clique** do menu **no app instalado**. A recomendação do
+Dedé é confirmar com o owner se a verificação via código (sem interação
+manual) basta para validar o menu na instalação.
+
+O que foi feito sobre esse limite:
+
+- o comportamento do menu foi provado com o **mesmo código**, rodando de
+  `D:\tranal-despertador\target\release` (mesmo binário, outro caminho) —
+  inclusive o controle negativo (clique numa área vazia da barra **não**
+  restaura a janela);
+- no app **instalado** foram conferidos o ícone visível na faixa, o
+  `IsPromoted = 1` na chave do caminho novo, a chave `Run`, os atalhos e os
+  dados intactos.
+
+O pedido ao Dedé está versionado em
+`docs/arquitetura/pedido-dede-quality-gate-rodada-bandeja.md`: quando o
+provedor cair de novo, é só rodar o comando de novo.
