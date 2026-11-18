@@ -689,3 +689,100 @@ O que foi feito sobre esse limite:
 O pedido ao Dedé está versionado em
 `docs/arquitetura/pedido-dede-quality-gate-rodada-bandeja.md`: quando o
 provedor cair de novo, é só rodar o comando de novo.
+
+## 13. O layout da tela principal (referência: Tranal Sentinel)
+
+O owner reclamou: *"o layuout do app ainda é muito feio, esse botão novo
+despertador e as informações estão grudadas na borda do app sem nenhum
+espaçamento, acho que podemos usar o layout do app tranal sentinel como
+inspiração."*
+
+O diagnóstico era exato e medido: o `CentralPanel` era desenhado com
+`inner_margin = 0`, então **todo** o conteúdo encostava nas bordas da janela —
+o cartão do relógio na esquerda, o título da lista na direita e o botão
+"+ Novo despertador" solto embaixo do cartão, sem respiro nenhum.
+
+### 13.1 O que foi adotado do Tranal Sentinel
+
+O Sentinel (`E:\projetos\tranal-sentinel`, WPF/.NET) é a referência de layout
+da casa. O que foi trazido:
+
+| Do Sentinel | Aqui |
+|---|---|
+| `CardBorder` com `Padding 20` | `ui::cartao()` com 20 px de respiro interno (era 18×16) |
+| Margem de página em volta do conteúdo | `ui::MARGEM_PAGINA` (24 px) e `MARGEM_PAGINA_VERTICAL` (20 px) |
+| Barra de título fina (`Row 44`) com divisória | `topo()` virou uma faixa fina com linha divisória embaixo |
+| `H1` 26 semi-bold, `Hero` 34, `Label` 10,5, `Sub` 13 | `ESTILO_TITULO`, `ESTILO_HERO`, `ESTILO_ROTULO`, `ESTILO_SUB` |
+| `PrimaryButton` com padding largo (28×11) | `botao_primario_grande` na linha do título da página |
+| Números em fonte monoespaçada | Relógio e hora do próximo alarme em monoespaçada |
+
+**O que não foi adotado, de propósito:**
+
+- **A paleta.** O Sentinel é monocromático; o Tranal Despertador tem laranja
+  como acento, já validado na WCAG AA (7,1:1 no texto e 5,2:1 no
+  preenchimento de botão) e aprovado pelo owner. A *estrutura* do layout foi
+  adotada, não a paleta — trocar a cor mudaria a identidade do app sem
+  resolver a reclamação (que era de espaçamento).
+- **A barra lateral de navegação.** O Sentinel tem seis abas; o Despertador
+  tem uma tela principal e duas Configurações. Uma barra lateral com dois
+  itens seria ruído, não util.
+
+### 13.2 A estrutura nova
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ Tranal Despertador                        [Configurações]│  <- faixa fina (topo)
+├──────────────────────────────────────────────────────────┤
+│  (24 px de margem de página)                              │
+│  Despertadores                        [+ Novo despertador]│  <- cabeçalho
+│  1 ativo · próximo às 07:00                              │
+│                                                          │
+│  ┌────────────────┐   ┌──────────────────────────────┐  │
+│  │ 18:54          │   │ 07:00  Despertador      [ON] │  │
+│  │ quarta-feira…  │   │ [Uma vez][Onda][100%][desafio]│  │
+│  │ ─────────────  │   │        Editar  Testar  ×      │  │
+│  │ PRÓXIMO        │   └──────────────────────────────┘  │
+│  │ 07:00          │                                     │
+│  │ Despertador    │                                     │
+│  │ [Uma vez]      │                                     │
+│  │ ─────────────  │                                     │
+│  │ dica (dentro)  │                                     │
+│  └────────────────┘                                     │
+└──────────────────────────────────────────────────────────┘
+```
+
+O botão "+ Novo despertador" saiu de baixo do cartão do relógio e foi para a
+linha do título da página: era ele que o owner via "grudado na borda". A dica
+("Fechar a janela minimiza o app…") foi para **dentro** do cartão, com
+separador — antes ela era um texto solto na borda de baixo da janela.
+
+### 13.3 Três armadilhas do egui que custaram tempo (e ficam registradas)
+
+1. **`available_height()` dentro de um `horizontal` devolve 0** no primeiro
+   quadro. Com a altura tirada de dentro do `horizontal_top`, **as duas
+   colunas sumiram da tela**. A altura agora é calculada **antes** do
+   `horizontal` e passada por parâmetro.
+2. **O `Align` do egui alinha no eixo transversal do layout.** Num layout
+   horizontal, `Align::Center` centraliza **verticalmente**: o botão do
+   cabeçalho descia para o meio da janela. A correção é `Align::Min` (topo).
+3. **`PrintWindow` com `PW_RENDERFULLCONTENT` sai 1:1 com o
+   `GetWindowRect`.** Somar a borda da janela e a barra de título no clique
+   deslocava o clique em ~39 px, e o botão "parecia quebrado". Era erro do
+   **script de teste**, não do app — e o mesmo tipo de erro (ler a posição do
+   mouse no lugar errado) já tinha acontecido antes com o `mouseData >> 16`.
+
+### 13.4 Verificação
+
+- `cargo test`: **72 verdes**; `cargo clippy --all-targets -- -D warnings`:
+  limpo; `cargo build --release`: OK.
+- Capturas do **app instalado**
+  (`%LOCALAPPDATA%\Programs\Tranal Despertador\tranal-despertador.exe`):
+  `docs/captura-layout-v3.png` (tela principal), `docs/captura-editor-v3.png`
+  (editor) e `docs/captura-config-v3.png` (Configurações). O "antes" está em
+  `docs/captura-interface-nova.png`.
+- **Cliques reais** no app rodando: "Configurações" abre, "Novo despertador"
+  abre o editor, "Fechar" fecha o modal, "Fechar configurações" fecha, "Editar"
+  abre o editor do alarme existente.
+- Nenhum dado do owner foi mexido: o `last_rung = 2026-11-18` é o alarme das
+  07:00 **tocando de verdade** hoje, e o card passou a oferecer "Repetir
+  amanhã" — rearmar é decisão do owner.

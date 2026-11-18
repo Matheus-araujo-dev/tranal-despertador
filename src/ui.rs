@@ -45,12 +45,31 @@ impl Tema {
 }
 
 /// Escala de espaçamento (multiplos de 4, como manda a casa).
+///
+/// Os dois últimos existem para o **respiro da página**: o dono reclamou que
+/// o botão e as informações estavam "grudados na borda do app", e a
+/// referência de layout (o Tranal Sentinel) trabalha com cartões de 20 px de
+/// respiro e 24 px de margem de página.
 pub mod espaco {
     pub const XS: f32 = 4.0;
     pub const S: f32 = 8.0;
     pub const M: f32 = 12.0;
     pub const L: f32 = 16.0;
+    /// Respiro entre um bloco e outro (cartão e título).
+    pub const XL: f32 = 24.0;
 }
+
+/// Respiro da página: nada encosta na borda da janela.
+///
+/// O dono reclamou exatamente disso — *"o botão novo despertador e as
+/// informações estão grudadas na borda do app sem nenhum espaçamento"*. É a
+/// margem que o Tranal Sentinel usa entre a borda da janela e o conteúdo
+/// (14 px na barra lateral, 20 px dentro dos cartões).
+pub const MARGEM_PAGINA: i8 = 24;
+/// Respiro da página na vertical (em cima e embaixo).
+pub const MARGEM_PAGINA_VERTICAL: i8 = 20;
+/// Respiro dentro de um cartão (o `Padding 20` do Sentinel).
+pub const PADDING_CARTAO: i8 = 20;
 
 /// Raios de canto.
 pub mod raio {
@@ -71,6 +90,14 @@ pub fn raio(n: u8) -> CornerRadius {
 pub const ESTILO_HORA: &str = "hora";
 /// Nome do estilo de texto do relógio grande da tela inicial.
 pub const ESTILO_RELOGIO: &str = "relogio";
+/// Título da página (26 px, semi-bold): o `H1` do Tranal Sentinel.
+pub const ESTILO_TITULO: &str = "titulo-pagina";
+/// Rótulo de seção (10,5 px, semi-bold): o `Label` do Tranal Sentinel.
+pub const ESTILO_ROTULO: &str = "rotulo";
+/// Subtítulo (13 px): o `Sub` do Tranal Sentinel.
+pub const ESTILO_SUB: &str = "sub";
+/// Número em destaque (34 px): o `Hero` do Tranal Sentinel.
+pub const ESTILO_HERO: &str = "hero";
 
 /// Aplica o visual dark do app.
 pub fn aplicar(ctx: &egui::Context) {
@@ -127,16 +154,37 @@ pub fn aplicar(ctx: &egui::Context) {
             egui::TextStyle::Name(ESTILO_RELOGIO.into()),
             FontId::proportional(72.0),
         );
+        // Hierarquia de página, no mesmo padrão do Tranal Sentinel:
+        // H1 26, Hero 34, Label 10,5 e Sub 13.
+        s.text_styles.insert(
+            egui::TextStyle::Name(ESTILO_TITULO.into()),
+            FontId::proportional(26.0),
+        );
+        s.text_styles.insert(
+            egui::TextStyle::Name(ESTILO_HERO.into()),
+            FontId::proportional(34.0),
+        );
+        s.text_styles.insert(
+            egui::TextStyle::Name(ESTILO_ROTULO.into()),
+            FontId::proportional(10.5),
+        );
+        s.text_styles.insert(
+            egui::TextStyle::Name(ESTILO_SUB.into()),
+            FontId::proportional(13.0),
+        );
     });
 }
 
 /// Cartão com fundo, borda e cantos arredondados.
+///
+/// O respiro interno é o `Padding 20` do Tranal Sentinel: é ele que tira o
+/// conteúdo da borda do cartão e o deixa "respirar".
 pub fn cartao<R>(ui: &mut Ui, adicionar: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::new()
         .fill(Tema::PAINEL)
         .stroke(Stroke::new(1.0, Tema::BORDA))
         .corner_radius(raio(raio::CARTAO))
-        .inner_margin(egui::Margin::symmetric(18, 16))
+        .inner_margin(egui::Margin::symmetric(PADDING_CARTAO, PADDING_CARTAO - 2))
         .show(ui, adicionar)
         .inner
 }
@@ -157,14 +205,33 @@ pub fn botao_primario(ui: &mut Ui, texto: &str) -> Response {
     )
 }
 
+/// Botão principal **grande**: o da ação principal da página.
+///
+/// É o `PrimaryButton` do Tranal Sentinel (preenchido, canto 10, padding
+/// largo). Ele fica na linha do título da página, longe de qualquer borda.
+pub fn botao_primario_grande(ui: &mut Ui, texto: &str) -> Response {
+    ui.add(
+        egui::Button::new(
+            egui::RichText::new(texto)
+                .color(Color32::WHITE)
+                .size(15.0)
+                .strong(),
+        )
+        .fill(Tema::ACCENT_FORTE)
+        .corner_radius(raio(raio::CONTROLE))
+        .stroke(Stroke::NONE)
+        .min_size(Vec2::new(0.0, 44.0)),
+    )
+}
+
 /// Botão neutro (contorno).
 pub fn botao_neutro(ui: &mut Ui, texto: &str) -> Response {
     ui.add(
-        egui::Button::new(egui::RichText::new(texto).color(Tema::TEXTO).size(14.0))
+        egui::Button::new(egui::RichText::new(texto).color(Tema::TEXTO).size(13.0))
             .fill(Tema::PAINEL_ALTO)
             .corner_radius(raio(raio::CONTROLE))
             .stroke(Stroke::new(1.0, Tema::BORDA))
-            .min_size(Vec2::new(0.0, 36.0)),
+            .min_size(Vec2::new(0.0, 34.0)),
     )
 }
 
@@ -248,14 +315,33 @@ pub fn interruptor(ui: &mut Ui, ligado: &mut bool) -> Response {
     resposta
 }
 
-/// Título de seção.
+/// Título de seção (rótulo em maiúsculas, com respiro embaixo).
+///
+/// É o `Label` do Tranal Sentinel: 10,5 px, semi-bold, cinza, com 8 px de
+/// respiro antes do conteúdo que ele anuncia.
 pub fn titulo_secao(ui: &mut Ui, texto: &str) {
     ui.label(
         egui::RichText::new(texto.to_uppercase())
             .color(Tema::TEXTO_FRACO)
-            .size(11.0)
+            .size(10.5)
             .strong(),
     );
+    ui.add_space(espaco::S);
+}
+
+/// Título da página (26 px, semi-bold): o `H1` do Tranal Sentinel.
+pub fn titulo_pagina(ui: &mut Ui, texto: &str) {
+    ui.label(
+        egui::RichText::new(texto)
+            .color(Tema::TEXTO)
+            .size(26.0)
+            .strong(),
+    );
+}
+
+/// Subtítulo (13 px, cinza): o `Sub` do Tranal Sentinel.
+pub fn sub(ui: &mut Ui, texto: &str) {
+    ui.label(egui::RichText::new(texto).color(Tema::TEXTO_FRACO).size(13.0));
 }
 
 /// Texto de ajuda (cinza, pequeno).

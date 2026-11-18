@@ -190,12 +190,28 @@ impl TranalApp {
             )
             .show(ui, |ui| {
                 self.topo(ui);
-                ui.add_space(ui::espaco::L);
-                ui.horizontal_top(|ui| {
-                    self.coluna_relogio(ui);
-                    ui.add_space(ui::espaco::L);
-                    self.coluna_alarmes(ui);
-                });
+                // O respiro da página: nada encosta na borda da janela. E o
+                // que o dono pediu ("grudados na borda do app sem nenhum
+                // espaçamento").
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::symmetric(
+                        ui::MARGEM_PAGINA,
+                        ui::MARGEM_PAGINA_VERTICAL,
+                    ))
+                    .show(ui, |ui| {
+                        self.cabecalho_pagina(ui);
+                        ui.add_space(ui::espaco::XL);
+                        // A altura do conteudo e calculada ANTES do horizontal:
+                        // dentro de um `horizontal`, o egui ainda nao sabe
+                        // quanto espaco vertical sobrou (no primeiro quadro ele
+                        // devolve zero, e a coluna inteira sumia da tela).
+                        let altura = ui.available_height();
+                        ui.horizontal_top(|ui| {
+                            self.coluna_relogio(ui, altura);
+                            ui.add_space(ui::espaco::L);
+                            self.coluna_alarmes(ui, altura);
+                        });
+                    });
             });
 
         if self.editor.is_some() {
@@ -210,23 +226,21 @@ impl TranalApp {
         }
     }
 
+    /// A barra do topo: fina, como a barra de título do Tranal Sentinel
+    /// (44 px), com o nome do app à esquerda e as ações à direita.
+    ///
+    /// Não é mais um cartão: é uma faixa com uma linha divisória embaixo,
+    /// que separa a navegação do conteúdo.
     fn topo(&mut self, ui: &mut egui::Ui) {
         egui::Frame::new()
-            .fill(Tema::PAINEL)
-            .stroke(egui::Stroke::new(1.0, Tema::BORDA))
-            .inner_margin(egui::Margin::symmetric(22, 14))
+            .fill(Tema::FUNDO)
+            .inner_margin(egui::Margin::symmetric(ui::MARGEM_PAGINA, 6))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Tranal Despertador")
-                            .color(Tema::TEXTO)
-                            .size(19.0)
-                            .strong(),
-                    );
-                    ui.label(
-                        egui::RichText::new("   seu tempo é respeitado")
                             .color(Tema::TEXTO_FRACO)
-                            .size(12.0),
+                            .size(13.0),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui::botao_neutro(ui, "Configurações").clicked() {
@@ -238,11 +252,48 @@ impl TranalApp {
                     });
                 });
             });
+        // A linha que separa a barra do conteúdo.
+        let (linha, _) = ui.allocate_exact_size(egui::Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
+        ui.painter().rect_filled(linha, 0.0, Tema::BORDA);
     }
 
-    fn coluna_relogio(&mut self, ui: &mut egui::Ui) {
+    /// O cabeçalho da página: título, subtítulo e a ação principal.
+    ///
+    /// O botão "Novo despertador" mora **aqui**, na linha do título, e não
+    /// solto embaixo do cartão: era exatamente o que o owner achou "grudado
+    /// na borda do app".
+    fn cabecalho_pagina(&mut self, ui: &mut egui::Ui) {
+        let alarmes = self.alarms();
+        let ativos = alarmes.iter().filter(|a| a.enabled).count();
+        let ativos_texto = if ativos == 1 {
+            "1 ativo".to_string()
+        } else {
+            format!("{ativos} ativos")
+        };
+        let proximo_texto = match self.proximo.as_ref() {
+            Some((alarme, _)) => format!("{ativos_texto} · próximo às {}", alarme.time_label()),
+            None => format!("{ativos_texto} · nenhum despertador programado"),
+        };
+
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui::titulo_pagina(ui, "Despertadores");
+                // O `Align` do egui alinha no EIXO TRANSVERSO do layout: num
+                // layout horizontal, `Min` e o topo. Com `Center`, o botão
+                // descia para o meio da janela.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    if ui::botao_primario_grande(ui, "+  Novo despertador").clicked() {
+                        self.abrir_editor(None);
+                    }
+                });
+            });
+            ui::sub(ui, &proximo_texto);
+        });
+    }
+
+    fn coluna_relogio(&mut self, ui: &mut egui::Ui, altura: f32) {
         ui.allocate_ui_with_layout(
-            egui::Vec2::new(330.0, 520.0),
+            egui::Vec2::new(340.0, altura),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 ui::cartao(ui, |ui| {
@@ -250,9 +301,11 @@ impl TranalApp {
                     ui.label(
                         egui::RichText::new(agora.format("%H:%M").to_string())
                             .color(Tema::TEXTO)
-                            .size(64.0)
-                            .strong(),
+                            .size(56.0)
+                            .strong()
+                            .monospace(),
                     );
+                    ui.add_space(2.0);
                     ui.label(
                         egui::RichText::new(format!(
                             "{}, {} de {}",
@@ -261,7 +314,7 @@ impl TranalApp {
                             nome_mes(agora.month())
                         ))
                         .color(Tema::TEXTO_FRACO)
-                        .size(14.0),
+                        .size(13.0),
                     );
 
                     ui.add_space(ui::espaco::M);
@@ -269,16 +322,16 @@ impl TranalApp {
                     ui.add_space(ui::espaco::M);
 
                     ui::titulo_secao(ui, "próximo despertador");
-                    ui.add_space(ui::espaco::S);
                     match self.proximo.as_ref() {
                         Some((alarme, quando)) => {
                             ui.label(
                                 egui::RichText::new(alarme.time_label())
                                     .color(Tema::ACCENT)
-                                    .size(34.0)
+                                    .size(30.0)
                                     .strong()
                                     .monospace(),
                             );
+                            ui.add_space(2.0);
                             ui.label(
                                 egui::RichText::new(nome_do_alarme(alarme))
                                     .color(Tema::TEXTO)
@@ -298,42 +351,34 @@ impl TranalApp {
                                     .color(Tema::TEXTO_FRACO)
                                     .size(14.0),
                             );
-                            ui::ajuda(
-                                ui,
-                                "Crie um despertador e ele aparece aqui.",
-                            );
+                            ui::ajuda(ui, "Crie um despertador e ele aparece aqui.");
                         }
                     }
-                });
 
-                ui.add_space(ui::espaco::L);
-                if ui::botao_primario(ui, "  +  Novo despertador").clicked() {
-                    self.abrir_editor(None);
-                }
-                ui.add_space(ui::espaco::S);
-                ui::ajuda(
-                    ui,
-                    "Dica: fechar a janela minimiza o app e ele continua tocando. Para abrir de novo, clique no ícone dele na barra de tarefas.",
-                );
+                    // A dica fica dentro do cartão, com respiro: antes ela
+                    // encostava na borda de baixo da janela.
+                    ui.add_space(ui::espaco::M);
+                    ui::linha_separadora(ui);
+                    ui.add_space(ui::espaco::S);
+                    ui::ajuda(
+                        ui,
+                        "Fechar a janela minimiza o app e ele continua tocando. Para abrir de novo, clique no ícone dele na bandeja.",
+                    );
+                });
             },
         );
     }
 
-    fn coluna_alarmes(&mut self, ui: &mut egui::Ui) {
+    fn coluna_alarmes(&mut self, ui: &mut egui::Ui, altura: f32) {
         // Copia para desenhar: a interface nao segura o estado travado
         // enquanto monta os cartoes.
         let alarms = self.alarms();
 
         ui.allocate_ui_with_layout(
-            egui::Vec2::new(ui.available_width(), 520.0),
+            egui::Vec2::new(ui.available_width(), altura),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
-                ui.horizontal(|ui| {
-                    ui::titulo_secao(ui, &format!("meus despertadores ({})", alarms.len()));
-                });
-                ui.add_space(ui::espaco::S);
                 egui::ScrollArea::vertical()
-                    .max_height(460.0)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         if alarms.is_empty() {
@@ -822,11 +867,11 @@ impl TranalApp {
                         ui::titulo_secao(ui, "volume");
                         ui.add_space(ui::espaco::XS);
                         let mut volume = editor.rascunho.volume as i32;
-                        ui::slider_inteiro(ui, &mut volume, 0, 100, "volume do alarme", " %");
+                        ui::slider_inteiro(ui, &mut volume, 0, 100, "volume do alarme", "%");
                         editor.rascunho.volume = volume.clamp(0, 100) as u8;
 
                         let mut fade = editor.rascunho.fade_in_secs as i32;
-                        ui::slider_inteiro(ui, &mut fade, 0, 120, "subir o volume devagar", " s");
+                        ui::slider_inteiro(ui, &mut fade, 0, 120, "subir o volume devagar", "s");
                         editor.rascunho.fade_in_secs = fade.clamp(0, 120) as u32;
                         ui::ajuda(
                             ui,
@@ -1478,7 +1523,7 @@ impl TranalApp {
                         settings.alarme_padrao.minute = minuto;
 
                         let mut volume = settings.alarme_padrao.volume as i32;
-                        ui::slider_inteiro(ui, &mut volume, 0, 100, "volume do alarme", " %");
+                        ui::slider_inteiro(ui, &mut volume, 0, 100, "volume do alarme", "%");
                         settings.alarme_padrao.volume = volume.clamp(0, 100) as u8;
 
                         let mut soneca = settings.alarme_padrao.dismiss.soneca;

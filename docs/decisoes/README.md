@@ -75,6 +75,22 @@ porquê em [`../SPEC.md`](../SPEC.md):
 - **Ícone desenhado em código** (`src/icone.rs`), sem PNG/ICO versionado: o
   `.ico` dos atalhos é exportado pelo próprio app (`--exportar-icone`) a
   partir do mesmo desenho da bandeja — uma só fonte para o ícone.
+- **Layout com a referência do Tranal Sentinel** (`docs/SPEC.md` §13): o
+  owner pediu "inspiração" no app da casa. O que foi trazido: a **margem de
+  página** (24 px), o **respiro do cartão** (20 px, o `Padding 20` do
+  Sentinel), a **barra de topo fina** com divisória, a **hierarquia
+  tipográfica** (H1 26, Hero 34, Label 10,5, Sub 13) e a **ação principal na
+  linha do título** da página.
+- **A paleta do Sentinel NÃO foi adotada**: ele é monocromático; o laranja do
+  Despertador é a identidade do app e já passa na WCAG AA (7,1:1 no texto,
+  5,2:1 no botão). A reclamação era de **espaçamento**, e trocar a cor não a
+  resolveria.
+- **A barra lateral de navegação do Sentinel NÃO foi adotada**: o Sentinel tem
+  seis abas; o Despertador tem uma tela principal e duas Configurações — uma
+  barra lateral com dois itens seria ruído.
+- **Altura das colunas calculada antes do `horizontal`**: dentro de um layout
+  horizontal, o egui devolve `available_height() = 0` no primeiro quadro, e
+  as colunas sumiam da tela.
 
 ## Riscos em aberto
 
