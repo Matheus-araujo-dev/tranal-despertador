@@ -25,8 +25,38 @@ embarcado) e o agendamento **dorme** até o próximo evento.
   preenchido quando você clica em “Novo despertador”.
 - **Continua tocando com a janela fechada** (a janela minimiza; o app segue
   rodando).
+- **Fica na bandeja do Windows**: o ícone do despertador laranja fica na área
+  de notificação (o app se promove sozinho — o Windows 11 esconde ícone
+  novo). Clique esquerdo abre a janela; clique direito abre o menu
+  (“Abrir o Tranal” / “Sair”).
+- **Instalador**: um comando instala o app no PC, cria os atalhos e liga o
+  início automático.
 
-## Como rodar
+## Instalar
+
+```powershell
+.\scripts\instalar.ps1
+```
+
+O instalador é **por usuário** (não precisa de administrador e não invade
+“Program Files”):
+
+| | |
+|---|---|
+| Programa | `%LOCALAPPDATA%\Programs\Tranal Despertador` |
+| Atalho | Menu Iniciar e Área de trabalho |
+| Início automático | ligado, com o app já minimizado |
+| Dados do dono | `%APPDATA%\Tranal Despertador` — **preservados** na reinstalação |
+
+Para desinstalar (os despertadores e os sons continuam no lugar):
+
+```powershell
+.\scripts\instalar.ps1 -Desinstalar
+```
+
+Com `-ApagarDados`, os dados do dono também são apagados.
+
+## Como rodar (desenvolvimento)
 
 ```powershell
 cargo run                 # debug
@@ -55,6 +85,9 @@ O binário é único: não tem servidor, nem banco, nem serviço. Os dados ficam
 | `src/tones.rs` | presets sintetizados e leitura de arquivo (via `symphonia`) |
 | `src/arquivos.rs` | seletor de arquivos **dentro do app** (não usa o explorer do Windows) |
 | `src/device_volume.rs` | volume do aparelho (Core Audio) e início automático com o Windows |
+| `src/tray.rs` | ícone na bandeja do Windows, promoção automática e o clique que reabre a janela |
+| `src/tray_menu.rs` | o menu de contexto da bandeja (nativo do Windows, ancorado acima da barra de tarefas) |
+| `src/icone.rs` | o desenho do despertador laranja (bandeja, barra de título e `.ico` dos atalhos) |
 | `src/model.rs` | modelo de dados (JSON legível) |
 | `src/hora.rs` | interpretação do horário digitado |
 

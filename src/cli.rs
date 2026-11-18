@@ -15,6 +15,9 @@ pub fn executar(args: &[String]) -> bool {
     if args.iter().any(|a| a == "--forcar-volume") {
         return forcar_volume(args);
     }
+    if args.iter().any(|a| a == "--exportar-icone") {
+        return exportar_icone(args);
+    }
     if !args.iter().any(|a| a == "--testar-som") {
         return false;
     }
@@ -71,6 +74,31 @@ pub fn executar(args: &[String]) -> bool {
 fn valor(args: &[String], chave: &str) -> Option<String> {
     let pos = args.iter().position(|a| a == chave)?;
     args.get(pos + 1).cloned()
+}
+
+/// Modo `--exportar-icone <arquivo.ico>`: grava o desenho do despertador em
+/// um arquivo `.ico`.
+///
+/// O instalador usa isso para os atalhos do Menu Iniciar e da Area de
+/// trabalho: o executavel nao tem recurso de icone embutido (o icone do app
+/// e desenhado em codigo, em tempo de execucao), e o Windows nao adivinha o
+/// icone de um executavel que nao o tem.
+fn exportar_icone(args: &[String]) -> bool {
+    let Some(caminho) = valor(args, "--exportar-icone") else {
+        eprintln!("Uso: tranal-despertador --exportar-icone <arquivo.ico>");
+        std::process::exit(1);
+    };
+    let caminho = std::path::PathBuf::from(caminho);
+    match crate::icone::exportar_ico(&caminho) {
+        Ok(()) => {
+            println!("Icone gravado em: {}", caminho.display());
+            true
+        }
+        Err(e) => {
+            eprintln!("Nao consegui gravar o icone: {e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Modo `--forcar-volume`: exercita o caminho Rust do Core Audio.

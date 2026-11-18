@@ -155,8 +155,8 @@ def ler_dados():
 
 # -------------------------------------------------------------- janela
 
-def janela_do_app(pid):
-    """hwnd e rect da janela principal do app."""
+def janelas_do_pid(pid):
+    """Todas as janelas de topo que pertencem ao processo (hwnd, titulo, rect)."""
     achados = []
 
     def cb(hwnd, lparam):
@@ -171,7 +171,20 @@ def janela_do_app(pid):
         return True
 
     user32.EnumWindows(EnumWindowsProc(cb), 0)
-    for hwnd, titulo, r in achados:
+    return achados
+
+
+def janela_do_app(pid):
+    """hwnd e rect da janela principal do app.
+
+    A janela principal e a que tem o titulo do app; o filtro por tamanho
+    sozinho falha quando ela esta minimizada (o rect vira o do icone).
+    """
+    janelas = janelas_do_pid(pid)
+    for hwnd, titulo, r in janelas:
+        if titulo.startswith("Tranal"):
+            return hwnd, titulo, r
+    for hwnd, titulo, r in janelas:
         if r.right - r.left > 400 and r.bottom - r.top > 300:
             return hwnd, titulo, r
     return None

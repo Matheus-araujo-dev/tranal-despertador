@@ -345,7 +345,8 @@ precisar"*. A distância entre as duas frases era o D1.
 | ID | Pendência | Por que ficou |
 |---|---|---|
 | D2 | Saídas de áudio são pareadas **pelo nome**, não pelo id do endpoint | Trocar por id exigiria o `IMMDeviceId` do Core Audio bridado com o `cpal`, que não expõe o mesmo id. Mitigação: o app mostra o nome exato de cada saída e o dono confere. As três saídas `PG27QRT1B` do dono têm nomes distintos (`1 -`, `2 -`, `3 -`) e foram testadas separadamente |
-| R5 | Se o Windows reiniciar durante a noite, o alarme só existe se o app estiver aberto | Mitigação implementada: iniciar junto com o Windows, minimizado, com instância única. **Falta** o ícone na bandeja (v2) |
+| R5 | Se o Windows reiniciar durante a noite, o alarme só existe se o app estiver aberto | **Resolvido**: iniciar junto com o Windows (minimizado, com instância única) **e** ícone na bandeja do Windows. O app se promove sozinho para a faixa de notificação, então o dono não precisa fazer nada. Medido: ícone visível na faixa, clique esquerdo reabre a janela, menu com “Abrir o Tranal” e “Sair” funcionando |
+| R6 | O ícone da bandeja sumir da faixa (o Windows 11 esconde ícone novo) | **Mitigado**: o app grava `IsPromoted = 1` na chave do ícone no registro e **confere** se o Windows aceitou (o Windows reescreve a chave e apagava a preferência). O `IconGuid` fixo, que resolveria a chave, foi **descartado** porque o Windows passa a guardar o ícone pela identidade e os cliques deixam de chegar no app |
 | — | Teste de integração que abra um stream real e prove que saiu som | Hoje a prova é a medição externa de pico (`IAudioMeterInformation`), registrada em 7.4, e não um teste automatizado |
 
 ### O que o Dedé disse que não é verificável pelo repositório
@@ -560,3 +561,103 @@ Core Audio) e as capturas de tela continuam valendo.
 O pedido ao Dedé está versionado em
 `docs/arquitetura/pedido-dede-quality-gate-rodada-interface.md`: quando o
 provedor cair de novo, é só rodar o comando de novo.
+
+## 12. Bandeja do Windows e instalador
+
+O dono perguntou se o projeto já tinha **instalador**, se o app **salva no
+lugar definido**, se os despertadores **sobrevivem a um reinício do Windows**
+e se ele **fica na bandeja**. A resposta honesta era: o app sobrevivia a um
+reinício (a chave de início automático existia), mas **não tinha instalador
+nem ícone na bandeja**. Esta seção é o registro do que foi feito.
+
+### 12.1 O ícone na bandeja (`src/tray.rs`)
+
+O ícone é criado com a biblioteca `tray-icon` (que não depende de `winit` e
+não conflita com a versão de `windows-sys` do projeto). O desenho é feito em
+código (um despertador laranja de 64×64, em `src/icone.rs`), sem arquivo de
+imagem no repositório.
+
+Regras do Windows que a implementação respeita:
+
+| Regra | Como foi resolvida |
+|---|---|
+| O ícone tem que ser criado **na thread com o event loop** | A criação acontece no primeiro quadro da interface (`app.rs`), ou seja, na thread principal |
+| Os **eventos** podem ser lidos de outra thread | A thread `tranal-bandeja` só lê eventos e fala com a interface; nada de som |
+| O ícone precisa ficar **vivo** enquanto o app vive | O `TrayIcon` é guardado em `TranalApp.bandeja` (se for solto, o Windows remove o ícone) |
+
+### 12.2 O menu da bandeja (`src/tray_menu.rs`) — e por que é próprio
+
+O menu pronto da biblioteca de bandeja é ancorado **na posição do mouse**. O
+mouse está dentro da barra de tarefas (é de lá que o clique veio), e o Windows
+não sabe que a barra cobre aquela área: o menu nasce com a base *dentro* da
+barra e o último item ("Sair") fica **atrás** dela, invisível.
+
+Foi medido: o popup (classe `#32768`) media 59 px de altura, com a base em
+`y=1416` — e a barra de tarefas do monitor comeca em `y=1393`. Os 23 px de
+baixo (o item "Sair") ficavam atrás da barra.
+
+A solução é um menu do Windows feito à mão (`CreatePopupMenu` +
+`TrackPopupMenuEx`), ancorado na **borda inferior da área de trabalho** do
+monitor (`GetMonitorInfo` → `rcWork.bottom`), com a base do menu apoiada nela:
+o menu abre para cima e nenhum item fica escondido. Medido depois da
+correção: popup em `(2193,1333)-(2362,1392)`, base em `1392` — **acima** da
+barra.
+
+Um segundo detalhe: um menu do Windows pertence à thread que está em
+primeiro plano. Aberto de outra thread, ele pisca e some. Por isso o pedido
+do menu vai para a thread principal por mensagem (`PostMessage` para uma
+janela dona, invisível, criada na thread principal) e é ela que abre o menu.
+
+### 12.3 A promoção automática do ícone
+
+O Windows 11 esconde, por padrão, o ícone recém-criado: ele vai para a lista
+de "ícones ocultos" (o `^` do lado direito). O dono teria de promovê-lo à mão
+em Configurações → Barra de tarefas → Outros ícones da bandeja — e o caminho
+muda a cada instalação.
+
+O app faz isso sozinho: grava `IsPromoted = 1` na chave do ícone em
+`HKCU\Control Panel\NotifyIconSettings`, procurada pelo caminho **exato** do
+executável que está rodando. A gravação é tentada de novo por alguns
+segundos (o Windows escreve a chave depois de criar o ícone) e o resultado
+fica no log (`%APPDATA%\Tranal Despertador\tray.log`).
+
+**Um `IconGuid` fixo foi tentado e descartado.** A ideia era amarrar a
+preferência "sempre mostrar" à identidade do ícone, para ela sobreviver a uma
+reinstalação em outro caminho. Medido nesta máquina: com `IconGuid`, o
+Windows passa a guardar o ícone pela identidade e **os cliques deixam de
+chegar no app** (o Windows continua chamando a janela do registro antigo).
+Sem o GUID, os cliques funcionam — e a promoção continua garantida pelo
+próprio app, a cada arranque.
+
+### 12.4 O instalador (`scripts/instalar.ps1`)
+
+Instalação **por usuário**: nada de administrador, nada em "Program Files".
+
+| Passo | O que acontece |
+|---|---|
+| 1 | Compila a versão release (ou reaproveita a que já existe, com `-NaoCompilar`) |
+| 2 | Fecha o app que estiver rodando (o arquivo não pode ser copiado aberto) |
+| 3 | Copia o executável para `%LOCALAPPDATA%\Programs\Tranal Despertador` e grava o `.ico` dos atalhos (`--exportar-icone`) |
+| 4 | Cria o atalho do Menu Iniciar (sempre) e o da Área de trabalho (opcional) |
+| 5 | Grava a chave de início automático apontando para o executável **instalado**, com `--minimizado` |
+| 6 | Abre o app instalado |
+
+`-Desinstalar` remove os atalhos, a chave de início automático e a pasta do
+programa. **Os despertadores e os sons do dono são preservados** (eles ficam
+em `%APPDATA%\Tranal Despertador`); só `-ApagarDados` remove esses também.
+
+O ícone dos atalhos é exportado pelo próprio app (`--exportar-icone`), e não
+por um `.ico` versionado: o desenho do ícone é o mesmo da bandeja, escrito em
+uma só lugar (`src/icone.rs`).
+
+### 12.5 O que foi medido nesta máquina
+
+| Prova | Resultado |
+|---|---|
+| Ícone na faixa de notificação | Despertador laranja visível na faixa do monitor 1, **promovido sozinho** pelo app |
+| Clique esquerdo no ícone | Janela restaurada (`IsIconic` 1 → 0) |
+| Clique direito no ícone | Menu abre; popup com base em `1392`, **acima** da barra de tarefas |
+| "Abrir o Tranal" | Janela minimizada → restaurada pelo menu |
+| "Sair" | App encerrado (o processo some) |
+| Controle negativo | Clique numa área vazia da barra **não** restaura a janela (o efeito vem do ícone, não do clique no vazio) |
+| Ícones promoted | `IsPromoted = 1` gravado pelo app, sem passo manual do dono |

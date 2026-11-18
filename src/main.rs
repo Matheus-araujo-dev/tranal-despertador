@@ -13,11 +13,14 @@ mod cli;
 mod device_volume;
 mod estado;
 mod hora;
+mod icone;
 mod instancia;
 mod model;
 mod schedule;
 mod storage;
 mod tones;
+mod tray;
+mod tray_menu;
 mod ui;
 
 use eframe::egui;
@@ -52,6 +55,8 @@ fn main() -> eframe::Result<()> {
             .with_inner_size([1040.0, 700.0])
             .with_min_inner_size([920.0, 620.0])
             .with_title("Tranal Despertador")
+            // O mesmo desenho do icone da bandeja, na barra de titulo.
+            .with_icon(crate::tray::icone_da_janela())
             // "--minimizado" e usado pela chave de inicio automatico: o app
             // comeca escondido, so com o agendador rodando.
             .with_visible(!args.iter().any(|a| a == "--minimizado")),

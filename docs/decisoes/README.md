@@ -13,6 +13,7 @@ saber o que foi decidido e onde está o texto original.
 | `dec-bee5702560` | App Tranal Despertador | PROPOSED (o portão classificou como INFERENCE) | — |
 | `dec-ef87ff5fc9` | Documentar o Tranal Despertador no Obsidian | PROPOSED (o portão classificou como INFERENCE) | — |
 | `dec-ade635d242` | Tranal Despertador no GitHub do owner | PROPOSED (o portão classificou como INFERENCE) | — |
+| `dec-e91fd361d6` | Instalador + ícone na bandeja (escolha do owner no questionário da rodada) | PROPOSED (o portão classificou como INFERENCE) | — |
 
 > **Sobre o portão:** o log oficial só adota decisões que classifica como
 > `OWNER_DECISION`. Os pedidos acima foram escritos com a frase literal do
@@ -47,13 +48,41 @@ porquê em [`../SPEC.md`](../SPEC.md):
   substitui o valor antigo).
 - **Configurações só gravam quando o valor muda**: antes, o `dados.json` era
   reescrito a cada quadro (60 vezes por segundo só pelo dono olhar a tela).
+- **Ícone na bandeja** (`src/tray.rs`): criado **no primeiro quadro** da
+  interface, porque o Windows exige um event loop na thread que cria o ícone.
+  O `TrayIcon` fica guardado no app — se for solto, o Windows remove o ícone
+  da área de notificação.
+- **Menu da bandeja próprio** (`src/tray_menu.rs`): o menu pronto da biblioteca
+  ancora **na posição do mouse**, que está dentro da barra de tarefas, e o
+  último item ("Sair") fica escondido atrás dela. O menu próprio é nativo do
+  Windows (`CreatePopupMenu` + `TrackPopupMenuEx`), ancorado na borda inferior
+  da área de trabalho, e aberto **na thread principal** (aberto de outra
+  thread, ele pisca e some).
+- **O app se promove sozinho** (`IsPromoted = 1` no registro): o Windows 11
+  esconde ícone novo na lista de ocultos, e o caminho para promovê-lo à mão
+  muda a cada instalação. A gravação é **conferida** — o Windows reescreve a
+  chave e apaga a preferência, então o app repete até ler o valor de volta.
+- **Sem `IconGuid` fixo**: com GUID, o Windows 11 guarda o ícone pela
+  identidade e **os cliques deixam de chegar no app**. A identidade do ícone
+  é o caminho exato do executável; a preferência é reaplicada a cada arranque.
+- **Instalação por usuário** (`scripts/instalar.ps1`):
+  `%LOCALAPPDATA%\Programs\Tranal Despertador`, sem administrador e sem
+  "Program Files". A chave de início automático aponta para o executável
+  **instalado** — é o que faz o despertador sobreviver a um reinício do PC
+  mesmo depois de uma reinstalação.
+- **Desinstalar preserva os dados do dono** (`%APPDATA%\Tranal Despertador`);
+  só `-ApagarDados` remove.
+- **Ícone desenhado em código** (`src/icone.rs`), sem PNG/ICO versionado: o
+  `.ico` dos atalhos é exportado pelo próprio app (`--exportar-icone`) a
+  partir do mesmo desenho da bandeja — uma só fonte para o ícone.
 
 ## Riscos em aberto
 
 | ID | Risco | Situação |
 |---|---|---|
-| D2 | Saídas de áudio pareadas pelo **nome**, não pelo id do endpoint do Core Audio | **mitigado**: a *escolha* do dono continua pelo nome (é o que o mixer do Windows mostra), mas o volume é salvo e devolvido pelo **id do endpoint** — duas saídas com o mesmo nome não se atrapalham mais, e uma delas não fica presa em 100%. Se o nome se repete, o resumo que o app mostra avisa que todas as homônimas foram ajustadas |
-| R5 | Sem ícone na bandeja: se o Windows reiniciar à noite, o alarme só existe se o app estiver aberto | pendente (documentado) |
+| D2 | Saídas de áudio pareadas pelo **nome**, não pelo id do endpoint do Core Audio | **mitigado**: a *escolha* do dono continua pelo nome (é o que o mixer do Windows mostra), mas o volume é salvo e devolvido pelo **id do endpoint** — duas saídas com o mesmo nome não se atrapelham mais, e uma delas não fica presa em 100%. Se o nome se repete, o resumo que o app mostra avisa que todas as homônimas foram ajustadas |
+| R5 | Sem ícone na bandeja: se o Windows reiniciar à noite, o alarme só existe se o app estiver aberto | **resolvido**: início automático minimizado (com instância única) **e** ícone na bandeja do Windows. Medido: ícone visível na faixa, clique esquerdo reabre a janela, menu com "Abrir o Tranal" e "Sair" funcionando |
+| R6 | O ícone da bandeja nascer escondido (o Windows 11 esconde ícone novo) | **mitigado**: o app grava `IsPromoted = 1` na chave do ícone e confere se o Windows aceitou. O `IconGuid` fixo, que resolveria a chave, foi descartado porque quebra os cliques no Windows 11 |
 
 ## Licenças das dependências (auditoria)
 

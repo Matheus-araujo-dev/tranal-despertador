@@ -18,6 +18,7 @@ use crate::model::{self, Alarm, Desafio, Preset, RepeatRule, SoundChoice};
 use crate::schedule;
 use crate::storage;
 use crate::tones::{self, AudioDaBiblioteca};
+use crate::tray;
 use crate::ui::{self, Tema};
 use crate::device_volume;
 
@@ -110,6 +111,11 @@ pub struct TranalApp {
     destino_selecao: DestinoSelecao,
     /// Os áudios que o dono adicionou ao app (tela de configurações).
     biblioteca: Vec<AudioDaBiblioteca>,
+    /// O ícone na bandeja do Windows (vive enquanto o app vive).
+    ///
+    /// O `TrayIcon` tem que ficar guardado: se for solto, o Windows remove o
+    /// ícone da área de notificação.
+    bandeja: Option<tray_icon::TrayIcon>,
 }
 
 impl TranalApp {
@@ -145,6 +151,7 @@ impl TranalApp {
             seletor: None,
             destino_selecao: DestinoSelecao::Editor,
             biblioteca: tones::biblioteca(),
+            bandeja: None,
         }
     }
 
@@ -1906,15 +1913,28 @@ impl eframe::App for TranalApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
+        // A bandeja do Windows nasce no primeiro quadro: o Windows exige que
+        // o ícone seja criado na thread que tem o event loop (a principal).
+        if self.bandeja.is_none() {
+            tray::registrar_contexto(&ctx);
+            self.bandeja = tray::criar();
+            tray::iniciar_ouvinte();
+        }
+
         // Fechar a janela nao encerra o app: a janela minimiza e o agendador
         // continua tocando. A excecao e a opcao "encerrar o app quando a
-        // janela e fechada".
+        // janela e fechada" — e o "Sair" do menu da bandeja.
         let fechar_foi_pedido = ctx.input(|i| i.viewport().close_requested());
-        if fechar_foi_pedido && !self.comp.travar().settings.sair_ao_fechar {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-            self.mensagem = None;
-            self.alerta = None;
+        if fechar_foi_pedido {
+            // O flag so e consumido quando o fechamento chegou de verdade:
+            // ai o "Sair" da bandeja encerra o app em vez de minimiza-lo.
+            let saiu_da_bandeja = tray::sair_pedido();
+            if !saiu_da_bandeja && !self.comp.travar().settings.sair_ao_fechar {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                self.mensagem = None;
+                self.alerta = None;
+            }
         }
 
         // Eventos do agendador. O som ja comecou na thread do agendador: aqui
