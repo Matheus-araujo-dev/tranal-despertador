@@ -36,6 +36,17 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     }
 
+    // A chave de "iniciar junto com o Windows" e o que faz o despertador
+    // sobreviver a um reinicio do PC. A tela e o registro podem divergir (o
+    // dono liga a opcao e o registro nao grava, ou o exe muda de lugar), e
+    // essa divergencia e silenciosa: o app parece la, mas sobe depois do
+    // reinicio. Por isso o registro e reconciliado com o ajuste salvo toda
+    // vez que o app arranca.
+    let (_, ajustes) = storage::carregar();
+    if let Err(e) = device_volume::configurar_inicio_com_windows(ajustes.iniciar_com_o_windows) {
+        eprintln!("Nao consegui sincronizar o inicio automatico: {e}");
+    }
+
     let opcoes = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1040.0, 700.0])
