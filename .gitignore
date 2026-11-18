@@ -23,6 +23,10 @@ docs/captura-editor-glow.png
 docs/captura-alarme-lista.png
 docs/captura-alarme-tocando.png
 
+# Capturas do teste de digitacao por cima que nao provam nada (o Windows
+# nao deixou o script roubar o foco; a prova ficou nos testes headless)
+docs/captura-hora-por-cima*.png
+
 # Sistema
 .DS_Store
 Thumbs.db

@@ -387,6 +387,30 @@ pub fn campo_hora(ui: &mut Ui, texto: &mut String, id: egui::Id) -> Response {
     )
 }
 
+/// Seleciona o texto inteiro do campo quando ele **ganha o foco**.
+///
+/// O dono pediu para **digitar por cima** do horário: com o texto todo
+/// selecionado, o primeiro dígito já substitui o valor antigo, sem precisar
+/// apagar antes.
+///
+/// A seleção fica no estado do `TextEdit` (o egui guarda isso entre quadros),
+/// então ela vale no quadro seguinte, que é o que o dono vê.
+pub fn selecionar_todo_ao_ganhar_foco(
+    ctx: &egui::Context,
+    id: egui::Id,
+    texto: &str,
+    ganhou_foco: bool,
+) {
+    if !ganhou_foco || texto.is_empty() {
+        return;
+    }
+    let selecao = egui::text_selection::CCursorRange::select_all_str(texto);
+    if let Some(mut estado) = egui::widgets::text_edit::TextEditState::load(ctx, id) {
+        estado.cursor.set_char_range(Some(selecao));
+        estado.store(ctx, id);
+    }
+}
+
 /// Grupo de opções em que **mais de uma** pode estar marcada (os dias da
 /// semana).
 ///
@@ -437,3 +461,98 @@ pub fn seletor_multiplo(ui: &mut Ui, opcoes: &[&str], marcados: &[bool]) -> Opti
     escolhido
 }
 
+
+
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    /// Contexto do egui sem janela.
+    ///
+    /// O `Box::leak` é de propósito: o `Context` guarda a textura da fonte e
+    /// o epaint reclama (`debug_assert`) quando ela é destruída sem um
+    /// renderer, e um teste headless não tem renderer. Vazar o contexto
+    /// durante o teste é o jeito limpo de não ter esse assert.
+    fn contexto() -> &'static egui::Context {
+        Box::leak(Box::new(egui::Context::default()))
+    }
+
+    /// Um quadro do egui com o campo de hora na tela.
+    fn quadro(
+        ctx: &egui::Context,
+        id: egui::Id,
+        texto: &mut String,
+        eventos: Vec<egui::Event>,
+    ) {
+        let raw = egui::RawInput {
+            events: eventos,
+            ..Default::default()
+        };
+        let saida = ctx.run_ui(raw, |ui| {
+            ui.add(egui::TextEdit::singleline(texto).id(id).char_limit(5));
+        });
+        saida.drop_without_applying_deltas();
+    }
+
+    fn selecao(ctx: &egui::Context, id: egui::Id) -> Option<(usize, usize)> {
+        let estado = egui::widgets::text_edit::TextEditState::load(ctx, id).unwrap();
+        estado
+            .cursor
+            .char_range()
+            .map(|r| (r.primary.index.0, r.secondary.index.0))
+    }
+
+    #[test]
+    fn ganhar_foco_seleciona_o_texto_inteiro() {
+        let ctx = contexto();
+        let id = egui::Id::unique("campo_hora_1");
+        let mut texto = String::from("07:00");
+        quadro(ctx, id, &mut texto, vec![]);
+
+        // o dono clicou no campo: o egui deu foco a ele
+        ctx.memory_mut(|m| m.request_focus(id));
+        selecionar_todo_ao_ganhar_foco(ctx, id, &texto, true);
+
+        assert_eq!(selecao(ctx, id), Some((5, 0)), "o texto inteiro tem que estar selecionado");
+    }
+
+    #[test]
+    fn digitar_por_cima_substitui_o_horario() {
+        let ctx = contexto();
+        let id = egui::Id::unique("campo_hora_2");
+        let mut texto = String::from("07:00");
+        quadro(ctx, id, &mut texto, vec![]);
+
+        ctx.memory_mut(|m| m.request_focus(id));
+        selecionar_todo_ao_ganhar_foco(ctx, id, &texto, true);
+
+        // o dono digita "0": tem que REPOR o horario, e nao somar
+        quadro(ctx, id, &mut texto, vec![egui::Event::Text("0".to_string())]);
+        assert_eq!(texto, "0");
+    }
+
+    #[test]
+    fn sem_selecao_o_horario_seria_somado() {
+        // contra-prova: sem a selecao automatica, o texto seria somado
+        let ctx = contexto();
+        let id = egui::Id::unique("campo_hora_3");
+        let mut texto = String::from("07:00");
+        quadro(ctx, id, &mut texto, vec![]);
+
+        ctx.memory_mut(|m| m.request_focus(id));
+        quadro(ctx, id, &mut texto, vec![egui::Event::Text("0".to_string())]);
+        assert_eq!(texto, "07:00");
+    }
+
+    #[test]
+    fn texto_vazio_nao_quebra_nada() {
+        let ctx = contexto();
+        let id = egui::Id::unique("campo_hora_4");
+        let mut texto = String::new();
+        quadro(ctx, id, &mut texto, vec![]);
+        ctx.memory_mut(|m| m.request_focus(id));
+        selecionar_todo_ao_ganhar_foco(ctx, id, &texto, true);
+        assert_eq!(selecao(ctx, id), None);
+    }
+}

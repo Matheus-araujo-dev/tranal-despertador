@@ -1612,6 +1612,10 @@ fn campo_hora_editavel(
     let resposta = ui::campo_hora(ui, texto, id);
     let tem_foco = ui.ctx().memory(|m| m.has_focus(id));
 
+    // Ao ganhar o foco, seleciona o texto inteiro: o dono digita **por
+    // cima** do horário, sem precisar apagar antes.
+    ui::selecionar_todo_ao_ganhar_foco(ui.ctx(), id, texto, !tinha_foco && tem_foco);
+
     if resposta.changed() {
         let limpo = hora::sanear(texto);
         *texto = limpo;
