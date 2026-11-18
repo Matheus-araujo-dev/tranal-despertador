@@ -371,10 +371,10 @@ pub fn importar_audio(origem: &str) -> Result<String, String> {
 
     // O arquivo ja esta na pasta do app: nao copia de novo (uma copia
     // seria identica, e o dono acabaria com dois arquivos iguais).
-    if let (Ok(a), Ok(b)) = (std::fs::canonicalize(origem), std::fs::canonicalize(&pasta)) {
-        if a.starts_with(&b) {
-            return Ok(origem.to_string_lossy().to_string());
-        }
+    if let (Ok(a), Ok(b)) = (std::fs::canonicalize(origem), std::fs::canonicalize(&pasta))
+        && a.starts_with(&b)
+    {
+        return Ok(origem.to_string_lossy().to_string());
     }
 
     let destino = caminho_livre(&pasta, &nome);

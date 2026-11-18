@@ -1552,12 +1552,20 @@ impl TranalApp {
             self.seletor = Some(arquivos::Seletor::novo(pasta_inicial()));
         }
 
-        // Grava as configurações no estado compartilhado.
-        {
-            let mut g = self.comp.travar();
-            g.settings = settings.clone();
+        // Grava as configurações no estado compartilhado -- **só quando
+        // mudaram**. Gravar a cada quadro escribava o arquivo de dados
+        // dezenas de vezes por segundo com a janela de configurações aberta.
+        let mudou = {
+            let g = self.comp.travar();
+            g.settings != settings
+        };
+        if mudou {
+            {
+                let mut g = self.comp.travar();
+                g.settings = settings.clone();
+            }
+            self.salvar();
         }
-        self.salvar();
         if fechar {
             self.mostrar_config = false;
             let _ = device_volume::configurar_inicio_com_windows(
