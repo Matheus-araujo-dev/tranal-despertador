@@ -56,9 +56,18 @@ impl Alarm {
 
     /// Cria um despertador novo a partir do modelo das Configurações.
     ///
-    /// O modelo (o "despertador padrão") é copiado inteiro, menos o que só
-    /// faz sentido em um alarme de verdade: o `id` (que precisa ser novo) e o
-    /// histórico de disparo e de sonecas.
+    /// O modelo (o "despertador padrão") é copiado inteiro — **todos** os
+    /// metadados vêm junto: nome, horário, repetição, som, volume, somada,
+    /// força do volume do aparelho, saídas marcadas e a política de desligar.
+    ///
+    /// Só duas coisas **não** vêm, e não é perda: são as que só fazem sentido
+    /// em um alarme que já tocou.
+    ///
+    /// - o `id`: o alarme novo precisa de identidade própria (e não pode
+    ///   sobrescrever o do padrão, que é só um modelo das Configurações);
+    /// - o histórico (`last_rung` e `sonecas_usadas`): se viessem, o alarme
+    ///   nasceria "já tocou hoje" e com as sonecas já contadas — o primeiro
+    ///   disparo do dia seria tratado como repetição.
     pub fn a_partir_do_padrao(padrao: &Alarm) -> Alarm {
         let mut novo = padrao.clone();
         novo.id = crate::model::novo_id();
@@ -292,6 +301,43 @@ mod testes {
         assert_eq!(novo.hour, padrao.hour);
         assert_eq!(novo.volume, padrao.volume);
         assert_eq!(novo.repeat, padrao.repeat);
+    }
+
+    #[test]
+    fn o_alarme_novo_preserva_todos_os_metadados_do_padrao() {
+        // O que o dono configurou no despertador padrao tem que chegar inteiro
+        // no alarme novo: so o id e o historico sao novos.
+        let mut padrao = Alarm::new(6, 45);
+        padrao.label = "Meu despertador".to_string();
+        padrao.enabled = false;
+        padrao.repeat = RepeatRule::Weekdays;
+        padrao.sound = SoundChoice::Preset(Preset::Onda);
+        padrao.volume = 55;
+        padrao.fade_in_secs = 30;
+        padrao.force_device_volume = false;
+        padrao.output_devices = vec!["1/2/3 - PG27QRT1B".to_string()];
+        padrao.dismiss.soneca = true;
+        padrao.dismiss.soneca_minutos = 7;
+
+        let novo = Alarm::a_partir_do_padrao(&padrao);
+
+        assert_eq!(novo.label, padrao.label);
+        assert_eq!(novo.hour, padrao.hour);
+        assert_eq!(novo.minute, padrao.minute);
+        assert_eq!(novo.enabled, padrao.enabled);
+        assert_eq!(novo.repeat, padrao.repeat);
+        assert_eq!(novo.sound, padrao.sound);
+        assert_eq!(novo.volume, padrao.volume);
+        assert_eq!(novo.fade_in_secs, padrao.fade_in_secs);
+        assert_eq!(novo.force_device_volume, padrao.force_device_volume);
+        assert_eq!(novo.output_devices, padrao.output_devices);
+        assert_eq!(novo.dismiss.soneca, padrao.dismiss.soneca);
+        assert_eq!(novo.dismiss.soneca_minutos, padrao.dismiss.soneca_minutos);
+
+        // ... e o que é do alarme nasce novo.
+        assert_ne!(novo.id, padrao.id);
+        assert_eq!(novo.last_rung, None);
+        assert_eq!(novo.sonecas_usadas, 0);
     }
 
     #[test]

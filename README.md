@@ -63,10 +63,26 @@ Decisões estruturais, com o porquê de cada escolha: [`docs/SPEC.md`](docs/SPEC
 
 ## Licenças
 
-O app é do dono e o repositório é **privado**. As dependências são MIT/Apache,
-com uma exceção: [`symphonia`](https://github.com/pdeljanov/Symphonia) é
-**MPL-2.0** (copyleft de arquivo, não GPL/AGPL) e é usada só para **ler**
-arquivos de áudio.
+O app é do dono e o repositório é **privado**. As dependências foram auditadas
+com `cargo tree` (251 dependências transitivas):
+
+| Licença | Quem usa |
+|---|---|
+| MIT, Apache-2.0, BSD-2/3, ISC, Zlib, 0BSD, Unlicense | o grosso: `egui`, `eframe`, `winit`, `cpal`, `windows`, `serde`, `chrono`, `dirs`, `winreg`… |
+| **MPL-2.0** (copyleft de arquivo) | **symphonia** e suas crates (`symphonia-core`, `symphonia-common`, `symphonia-metadata`, `symphonia-bundle-mp3/flac`, `symphonia-codec-pcm`, `symphonia-format-ogg/riff`) — usada só para **ler** WAV/MP3/FLAC/OGG |
+| MIT / Apache-2.0 / OFL-1.1 / Ubuntu-font-1.0 | `epaint_default_fonts` (as fontes padrão do egui) |
+| BSL-1.0 | `clipboard-win`, `error-code` |
+| Unicode-3.0 | `unicode-ident`, `unicode-properties` |
+| **Apache-2.0 OU GPL-2.0-only** (dupla) | `self_cell` — o app usa a opção **Apache-2.0**, a permissiva |
+
+**Nada GPL/AGPL no processo** (regra D012 do `AGENTS.md`): nenhuma crate é
+GPL-only nem AGPL, e a única dupla (`self_cell`) é consumida sob a opção
+Apache-2.0.
+
+O que a MPL-2.0 do symphonia exige, na prática: se o **arquivo-fonte do
+symphonia** for modificado, essas modificações precisam ser publicadas. O
+app não modifica o symphonia — só o usa como biblioteca. O código-fonte do
+symphonia vem junto no crate (e no `Cargo.lock` deste repositório).
 
 ## Regras do repositório
 

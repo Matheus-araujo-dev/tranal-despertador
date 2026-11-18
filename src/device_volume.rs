@@ -22,6 +22,11 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 
 /// Volume salvo por dispositivo, para devolver ao valor original no fim.
+///
+/// A chave é o **id do endpoint** (o identificador único do Core Audio), e
+/// não o nome: duas saídas podem ter o mesmo nome (o Windows deixa), e com
+/// o nome como chave o volume de uma delas se perderia — ela ficaria em 100%
+/// para sempre.
 fn salvos() -> &'static Mutex<HashMap<String, f32>> {
     static SALVOS: OnceLock<Mutex<HashMap<String, f32>>> = OnceLock::new();
     SALVOS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -44,6 +49,9 @@ fn garantir_com() {
 
 /// Uma saída de áudio vista pelo Windows (Core Audio).
 struct Endpoint {
+    /// Identificador único do endpoint (o `id` do Core Audio). É o que
+    /// diferencia duas saídas com o mesmo nome.
+    id: String,
     nome: String,
     volume: IAudioEndpointVolume,
 }
@@ -69,10 +77,18 @@ fn enumerar() -> Result<Vec<Endpoint>, String> {
             let Ok(volume) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) else {
                 continue;
             };
-            saidas.push(Endpoint { nome, volume });
+            let id = id_do_endpoint(&device).unwrap_or_else(|| nome.clone());
+            saidas.push(Endpoint { id, nome, volume });
         }
         Ok(saidas)
     }
+}
+
+/// Identificador único do endpoint (o `id` do Core Audio).
+unsafe fn id_do_endpoint(device: &IMMDevice) -> Option<String> {
+    let id = unsafe { device.GetId() }.ok()?;
+    let texto = unsafe { id.to_string() }.ok()?;
+    Some(texto)
 }
 
 /// Nome amigável da saída (o mesmo que aparece no mixer do Windows).
@@ -124,11 +140,16 @@ pub fn saidas_com_volume() -> Vec<SaidaComVolume> {
         })
         .collect()
 }
+
 /// Força 100% nas saídas pedidas e guarda o volume anterior.
 ///
 /// Lista vazia = **a saída padrão do Windows** (e não todas as saídas: um
 /// alarme sem saída marcada não deve mexer no volume de aparelho nenhum).
 /// Devolve um resumo do que aconteceu, para o app poder mostrar ao dono.
+///
+/// O volume anterior é guardado pelo **id do endpoint**, não pelo nome: duas
+/// saídas podem ter o mesmo nome, e nesse caso o volume de uma delas se
+/// perderia na hora de devolver.
 pub fn forcar_100(nomes: &[String]) -> Result<String, String> {
     let saidas = enumerar()?;
     let alvo: Vec<&Endpoint> = if nomes.is_empty() {
@@ -149,11 +170,18 @@ pub fn forcar_100(nomes: &[String]) -> Result<String, String> {
     let mut salvos = salvos().lock().unwrap();
     let mut ajustadas = 0usize;
     let mut antes_min = 1.0f32;
-    for saida in alvo {
+    // O Windows permite duas saídas com o mesmo nome. O dono escolheu pelo
+    // nome, então todas as homônimas são ajustadas — e o resumo avisa, para
+    // o app não mexer onde o dono não esperava sem dizer.
+    let repetidos = nomes
+        .iter()
+        .filter(|nome| alvo.iter().filter(|s| &s.nome == *nome).count() > 1)
+        .count();
+    for saida in &alvo {
         let Ok(atual) = (unsafe { saida.volume.GetMasterVolumeLevelScalar() }) else {
             continue;
         };
-        salvos.entry(saida.nome.clone()).or_insert(atual);
+        salvos.entry(saida.id.clone()).or_insert(atual);
         if unsafe { saida.volume.SetMasterVolumeLevelScalar(1.0, std::ptr::null()) }.is_ok() {
             ajustadas += 1;
             antes_min = antes_min.min(atual);
@@ -162,10 +190,16 @@ pub fn forcar_100(nomes: &[String]) -> Result<String, String> {
     if ajustadas == 0 {
         return Err("O Windows não deixou mudar o volume das saídas.".to_string());
     }
-    Ok(format!(
+    let mut resumo = format!(
         "Volume do aparelho: {:.0}% para 100% em {ajustadas} saída(s)",
         antes_min * 100.0
-    ))
+    );
+    if repetidos > 0 {
+        resumo.push_str(&format!(
+            " (atenção: {repetidos} nome(s) de saída se repetem no Windows; todas as homônimas foram ajustadas)"
+        ));
+    }
+    Ok(resumo)
 }
 
 /// Devolve o volume que estava antes de `forcar_100`.
@@ -190,7 +224,7 @@ pub fn restaurar(nomes: &[String]) {
     };
     let mut salvos = salvos().lock().unwrap();
     for saida in alvos {
-        if let Some(anterior) = salvos.remove(&saida.nome) {
+        if let Some(anterior) = salvos.remove(&saida.id) {
             let _ = unsafe { saida.volume.SetMasterVolumeLevelScalar(anterior, std::ptr::null()) };
         }
     }
@@ -234,5 +268,23 @@ mod testes {
     fn enumerar_nao_panca() {
         // Em máquina sem áudio pode falhar; o importante é não entrar em pânico.
         let _ = enumerar();
+    }
+
+    #[test]
+    fn os_ids_das_saidas_sao_distintos() {
+        // Duas saídas com o mesmo nome continuam sendo duas saídas diferentes:
+        // o volume de cada uma é guardado pelo id, e não pelo nome.
+        let Ok(saidas) = enumerar() else {
+            return; // máquina sem áudio: nada a conferir
+        };
+        let mut ids: Vec<&str> = saidas.iter().map(|s| s.id.as_str()).collect();
+        let total = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), total, "cada saída tem que ter o id próprio");
+        assert!(
+            !ids.iter().any(|i| i.is_empty()),
+            "o id da saída não pode vir vazio"
+        );
     }
 }

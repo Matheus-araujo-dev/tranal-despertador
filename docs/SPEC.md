@@ -506,9 +506,10 @@ digitável**, números **inteiros** e a biblioteca de sons do dono.
 
 | Verificação | Resultado |
 |---|---|
-| `cargo test` | **54 passed; 0 failed** (era 36) |
+| `cargo test` | **61 passed; 0 failed** (era 36) |
 | `cargo clippy --all-targets -- -D warnings` | **limpo** (o clippy nem estava instalado no toolchain: instalado nesta rodada) |
 | Digitação da hora (teclado de verdade) | `0630` → campo vira `06:30` ao perder o foco |
+| Digitação **por cima** (teste headless do egui) | Com o campo focado e o texto todo selecionado, digitar `0` em `07:00` deixa **`0`** (substituiu); sem a seleção seria `07:000` |
 | Importação de MP3 | Arquivo escolhido no seletor → aparece em "meus áudios", com a duração lida (1,0 s) |
 | Alarme com o app **minimizado** | Disparou sozinho, **pico 1,0000**, `last_rung` gravado |
 | Soneca (clique real de mouse) | O som **parou** (pico 0,0032) e a soneca **tocou de novo** (pico 1,0000, 53 s depois) |
@@ -517,3 +518,45 @@ digitável**, números **inteiros** e a biblioteca de sons do dono.
 > (`232,76,76`). Com o redesenho (`198,40,40`) ele achava só um pixel e o
 > clique caía no espaço entre os botões — o teste falhava por causa do teste,
 > não do app. Corrigido no `scripts/e2e.py`.
+
+### 11.6 Correções depois do redesenho
+
+Duas correções nasceram da revisão do próprio código (o quality gate externo
+não rodou — ver 11.7):
+
+1. **As Configurações gravavam o arquivo de dados a cada quadro.** O `dados.json`
+   era reescrito 60 vezes por segundo só por o dono olhar a tela. Agora só
+   grava quando o valor **muda** (`settings != estado.settings`), conferido pelo
+   `mtime` do arquivo: olhar não grava; alternar grava; voltar ao valor
+   original volta a gravar.
+2. **Digitação por cima do horário.** Ao ganhar o foco, o campo de hora
+   seleciona o texto inteiro (`ui::selecionar_todo_ao_ganhar_foco`), então o
+   primeiro dígito já substitui o horário anterior — sem apagar antes. Vale no
+   editor do despertador e no despertador padrão das Configurações.
+
+### 11.7 Quality gate (Dedé) desta rodada
+
+O quality gate é o **Dedé** (`hermes -p dede chat --query-file ... --oneshot`).
+As duas primeiras tentativas **não rodaram**: o provedor do Hermes ficou
+indisponível ("Provider temporarily unavailable — retrying") em cinco ciclos, e
+o fallback (`qwen3:14b` via Ollama) também deu "Connection error". Na terceira
+tentativa o provedor voltou e o gate rodou: **PASS_WITH_WARNING**, com os
+**8 critérios de aceitação todos atendidos**.
+
+**O que o Dedé apontou, e o que foi feito**
+
+| Achado (severidade) | O que foi feito |
+|---|---|
+| symphonia (MPL-2.0) pode conflitar com GPL/AGPL (MÉDIA) | **Auditoria feita** com `cargo tree` (251 dependências): nenhuma GPL/AGPL-only; a única dupla é `self_cell` (Apache-2.0 OU GPL-2.0-only), consumida sob a opção permissiva. Inventário completo no [`README.md`](../README.md#licenças) e em `docs/decisoes/README.md` |
+| Enumeração de saídas por nome, e não por id (BAIXA) | **Volume salvo e devolvido pelo id do endpoint** (`IMMDevice::GetId`), e não pelo nome: duas saídas com o mesmo nome não se atrapalham mais e nenhuma fica presa em 100%. A *escolha* do dono continua pelo nome (é o que o mixer mostra) e o resumo avisa quando o nome se repete. Risco D2 passa de "pendente" para "mitigado" |
+| `Alarm::a_partir_do_padrao` ignora `id` e histórico (MÉDIA) | **Não é perda, é intenção** — e agora está escrito: o `id` tem que ser novo (o padrão é só um modelo) e o histórico não vem porque o alarme nasceria "já tocou hoje" com as sonecas contadas. Novo teste prova que **todos** os metadados (nome, hora, repetição, som, volume, fade, força do volume, saídas e política de desligar) chegam inteiros |
+| Aviso: `tests/audio_mod.rs` não cobre áudio corrompido | **Teste novo**: um MP3 com cabeçalho ID3 e conteúdo lixo tem que dar **erro claro**, sem derrubar o app |
+| Aviso: R5 (ícone na bandeja) não verificável no código | Segue **pendente e documentado** — precisa de teste manual do dono |
+
+**O que o gate não substitui:** a revisão adversarial do próprio executor
+sobre o diff e o comportamento medido, o **E2E real** (som e soneca medidos no
+Core Audio) e as capturas de tela continuam valendo.
+
+O pedido ao Dedé está versionado em
+`docs/arquitetura/pedido-dede-quality-gate-rodada-interface.md`: quando o
+provedor cair de novo, é só rodar o comando de novo.

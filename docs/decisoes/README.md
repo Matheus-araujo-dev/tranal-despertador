@@ -42,10 +42,24 @@ porquê em [`../SPEC.md`](../SPEC.md):
   Windows (`IFileDialog`) demora demais para abrir.
 - **Reprodução dos sons do dono por cópia**: o arquivo vai para a pasta do app,
   então o despertador continua tocando mesmo se o original for movido.
+- **Seleção automática no campo da hora**: ao ganhar o foco, o texto inteiro é
+  selecionado, para o dono **digitar por cima** do horário (o primeiro dígito
+  substitui o valor antigo).
+- **Configurações só gravam quando o valor muda**: antes, o `dados.json` era
+  reescrito a cada quadro (60 vezes por segundo só pelo dono olhar a tela).
 
 ## Riscos em aberto
 
 | ID | Risco | Situação |
 |---|---|---|
-| D2 | Saídas de áudio pareadas pelo **nome**, não pelo id do endpoint do Core Audio | pendente |
+| D2 | Saídas de áudio pareadas pelo **nome**, não pelo id do endpoint do Core Audio | **mitigado**: a *escolha* do dono continua pelo nome (é o que o mixer do Windows mostra), mas o volume é salvo e devolvido pelo **id do endpoint** — duas saídas com o mesmo nome não se atrapalham mais, e uma delas não fica presa em 100%. Se o nome se repete, o resumo que o app mostra avisa que todas as homônimas foram ajustadas |
 | R5 | Sem ícone na bandeja: se o Windows reiniciar à noite, o alarme só existe se o app estiver aberto | pendente (documentado) |
+
+## Licenças das dependências (auditoria)
+
+`cargo tree` → 251 dependências transitivas. O inventário completo está no
+[`README.md` do repositório](../README.md#licenças). Resumo: MIT/Apache/BSD/ISC/
+Zlib/0BSD/Unlicense, **MPL-2.0** (symphonia, copyleft de arquivo, sem
+modificação do código-fonte), OFL-1.1 (fontes do egui), BSL-1.0, Unicode-3.0 e
+uma dupla **Apache-2.0 OU GPL-2.0-only** (`self_cell`, consumida sob
+Apache-2.0). **Nenhuma GPL/AGPL no processo** (regra D012).

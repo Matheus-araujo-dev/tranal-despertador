@@ -506,6 +506,23 @@ mod testes {
         assert!(erro.contains("não é suportado"), "erro: {erro}");
     }
 
+    #[test]
+    fn mp3_corrompido_da_erro_sem_derrubar() {
+        // O arquivo parece MP3 (pela extensão e pelo cabeçalho ID3) mas está
+        // corrompido: o app tem que mostrar um erro, não abrir uma janela
+        // cinza nem entrar em pânico no meio da madrugada.
+        let caminho = std::env::temp_dir().join(format!("tranal-corrompido-{}.mp3", std::process::id()));
+        let mut bytes = b"ID3\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".to_vec();
+        bytes.extend_from_slice(b"lixo que nao e um mp3 de verdade");
+        std::fs::write(&caminho, &bytes).expect("falha ao escrever");
+
+        let resultado = ler_audio(caminho.to_str().unwrap());
+        let _ = std::fs::remove_file(&caminho);
+
+        let erro = resultado.expect_err("um MP3 corrompido tem que dar erro");
+        assert!(!erro.is_empty(), "o erro não pode vir vazio");
+    }
+
     /// Monta um WAV PCM 16 bits mono ou stereo em memoria.
     fn wav_de_teste(canais: u16, quadros: usize) -> Vec<u8> {
         let taxa: u32 = 44100;
