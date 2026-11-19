@@ -43,26 +43,58 @@ impl Tema {
     pub const BORDA: Color32 = Color32::from_rgb(42, 49, 64);
     /// Borda de destaque (campo em foco, botão no hover).
     pub const BORDA_FORTE: Color32 = Color32::from_rgb(62, 72, 92);
-    /// Texto principal (15:1 no fundo).
+    /// Texto principal (16,4:1 no fundo).
     pub const TEXTO: Color32 = Color32::from_rgb(232, 236, 243);
-    /// Texto secundário (6.5:1 no fundo).
+    /// Texto secundário (6,3:1 no fundo).
     pub const TEXTO_FRACO: Color32 = Color32::from_rgb(146, 155, 174);
-    /// Laranja de destaque: texto, bordas e ícones (8.3:1 no fundo).
+    /// Laranja de destaque: texto, bordas e ícones (7,5:1 no fundo).
     pub const ACCENT: Color32 = Color32::from_rgb(255, 138, 40);
-    /// Laranja de preenchimento: fundo de botão com texto branco (5.2:1).
+    /// Laranja de preenchimento: fundo de botão com texto branco (5,2:1).
     pub const ACCENT_FORTE: Color32 = Color32::from_rgb(194, 65, 12);
-    /// Laranja do botão primário no hover (4.9:1 com texto branco).
-    pub const ACCENT_CLARO: Color32 = Color32::from_rgb(214, 82, 16);
-    /// Verde de confirmação (8.2:1 no fundo).
+    /// Laranja do botão primário no hover (4,7:1 com texto branco).
+    ///
+    /// Antes era `rgb(214, 82, 16)`, que dava **4,14:1** com o texto branco —
+    /// abaixo dos 4,5:1 da WCAG AA. O gate de qualidade achou isso; o valor
+    /// agora é o mais claro que ainda passa no AA.
+    pub const ACCENT_CLARO: Color32 = Color32::from_rgb(203, 72, 9);
+    /// Verde de confirmação (8,2:1 no fundo).
     pub const VERDE: Color32 = Color32::from_rgb(56, 190, 118);
-    /// Vermelho de alerta (6.6:1 no fundo).
+    /// Vermelho de alerta (6,6:1 no fundo).
     pub const VERMELHO: Color32 = Color32::from_rgb(240, 110, 110);
-    /// Vermelho de preenchimento (5.6:1 com texto branco).
+    /// Vermelho de preenchimento (5,6:1 com texto branco).
     pub const VERMELHO_FORTE: Color32 = Color32::from_rgb(198, 40, 40);
-    /// Vermelho do botão de perigo no hover (5.1:1 com texto branco).
-    pub const VERMELHO_CLARO: Color32 = Color32::from_rgb(214, 58, 58);
-    /// Azul de informação (7.1:1 no fundo).
+    /// Vermelho do botão de perigo no hover (5,0:1 com texto branco).
+    pub const VERMELHO_CLARO: Color32 = Color32::from_rgb(206, 54, 54);
+    /// Azul de informação (7,0:1 no fundo).
     pub const AZUL: Color32 = Color32::from_rgb(88, 156, 255);
+}
+
+/// Luminância relativa de uma cor, como a WCAG 2.1 define.
+///
+/// A cor é linearizada (a curva sRGB) antes do cálculo — sem isso o número
+/// sai otimista demais e o teste passa semverdade.
+#[cfg(test)]
+pub fn luminancia(cor: Color32) -> f64 {
+    fn linear(canal: u8) -> f64 {
+        let c = canal as f64 / 255.0;
+        if c <= 0.03928 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * linear(cor.r()) + 0.7152 * linear(cor.g()) + 0.0722 * linear(cor.b())
+}
+
+/// A razão de contraste entre duas cores, de `1:1` a `21:1`.
+///
+/// É o número que a WCAG 2.1 usa: **4,5:1** para texto normal e **3:1**
+/// para texto grande (≥ 18,66 px, ou ≥ 14 px em negrito).
+#[cfg(test)]
+pub fn razao_contraste(a: Color32, b: Color32) -> f64 {
+    let (la, lb) = (luminancia(a), luminancia(b));
+    let (claro, escuro) = if la >= lb { (la, lb) } else { (lb, la) };
+    (claro + 0.05) / (escuro + 0.05)
 }
 
 /// Escala de espaçamento (multiplos de 4, como manda a casa).
@@ -538,7 +570,7 @@ pub fn chip(ui: &mut Ui, texto: &str, cor: Color32) -> egui::Rect {
     ui.painter().rect_stroke(
         ret,
         raio(raio::PILULA),
-        Stroke::new(1.0, cor.gamma_multiply(0.55)),
+        Stroke::new(1.0, cor.gamma_multiply(0.7)),
         egui::StrokeKind::Middle,
     );
     ui.painter().text(
@@ -1017,5 +1049,71 @@ mod testes {
             grupo_direita,
             borda_da_linha
         );
+    }
+
+    /// A paleta tem que passar na **WCAG AA**, medido.
+    ///
+    /// O gate de qualidade pediu uma validação formal do contraste (o
+    /// único apontamento que ficou). Este teste é essa validação: ele
+    /// calcula a razão de contraste de cada par de cor que o app usa de
+    /// verdade e falha se algum ficar abaixo do mínimo da norma.
+    ///
+    /// * texto normal: **4,5:1** (WCAG 1.4.3);
+    /// * borda de elemento informativo: **3:1** (WCAG 1.4.11).
+    #[test]
+    fn a_paleta_passa_na_wcag_aa() {
+        let textos: [(&str, Color32, Color32); 15] = [
+            ("texto principal no fundo", Tema::TEXTO, Tema::FUNDO),
+            ("texto principal no cartão", Tema::TEXTO, Tema::PAINEL),
+            ("texto principal no controle", Tema::TEXTO, Tema::PAINEL_ALTO),
+            ("texto fraco no fundo", Tema::TEXTO_FRACO, Tema::FUNDO),
+            ("texto fraco no cartão", Tema::TEXTO_FRACO, Tema::PAINEL),
+            ("texto fraco no controle", Tema::TEXTO_FRACO, Tema::PAINEL_ALTO),
+            ("laranja no fundo", Tema::ACCENT, Tema::FUNDO),
+            ("laranja no cartão", Tema::ACCENT, Tema::PAINEL),
+            ("verde no cartão", Tema::VERDE, Tema::PAINEL),
+            ("vermelho no cartão", Tema::VERMELHO, Tema::PAINEL),
+            ("azul no cartão", Tema::AZUL, Tema::PAINEL),
+            ("branco no botão primário", Color32::WHITE, Tema::ACCENT_FORTE),
+            (
+                "branco no hover do botão primário",
+                Color32::WHITE,
+                Tema::ACCENT_CLARO,
+            ),
+            ("branco no botão de perigo", Color32::WHITE, Tema::VERMELHO_FORTE),
+            (
+                "branco no hover do botão de perigo",
+                Color32::WHITE,
+                Tema::VERMELHO_CLARO,
+            ),
+        ];
+        for (nome, frente, fundo) in textos {
+            let razao = razao_contraste(frente, fundo);
+            assert!(
+                razao >= 4.5,
+                "{}: contraste de {:.2}:1 está abaixo dos 4,5:1 exigidos pela WCAG AA",
+                nome,
+                razao
+            );
+        }
+
+        // A borda de 1 px da etiqueta (a "informação" do chip) tem que
+        // aparecer contra o cartão: 3:1 (WCAG 1.4.11).
+        let bordas: [(&str, Color32); 5] = [
+            ("borda da etiqueta de repetição", Tema::AZUL),
+            ("borda da etiqueta de som", Tema::TEXTO_FRACO),
+            ("borda da etiqueta de volume", Tema::VERDE),
+            ("borda da etiqueta de desafio", Tema::ACCENT),
+            ("borda da etiqueta de perigo", Tema::VERMELHO),
+        ];
+        for (nome, cor) in bordas {
+            let razao = razao_contraste(cor.gamma_multiply(0.7), Tema::PAINEL);
+            assert!(
+                razao >= 3.0,
+                "{}: contraste de {:.2}:1 está abaixo dos 3:1 exigidos pela WCAG 1.4.11",
+                nome,
+                razao
+            );
+        }
     }
 }

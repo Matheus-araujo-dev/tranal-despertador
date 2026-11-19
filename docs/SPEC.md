@@ -899,19 +899,48 @@ fraco + o nome da página, e a ação à direita.
 
 ### 14.6 Verificação
 
-- `cargo test`: **74 verdes** (2 novos, que medem o defeito);
+- `cargo test`: **75 verdes** (3 que medem o defeito);
   `cargo clippy --all-targets -- -D warnings`: limpo;
   `cargo build --release`: OK.
-- **Dois testes novos medem o defeito** (`src/ui.rs`):
+- **Três testes novos medem o defeito** (`src/ui.rs`):
   - `o_texto_do_botao_fica_centralizado` — o retângulo do texto desenhado
     tem que ter o mesmo centro do retângulo do botão (tolerância de 1 px);
   - `o_grupo_de_botoes_para_na_direita_sem_invadir_o_conteudo` — o grupo de
     botões encosta na borda direita da linha (1 px) e **não invade** a
-    etiqueta que vem antes.
-- Capturas: `docs/captura-layout-v4.png` (tela principal com dois
-  despertadores), `docs/captura-editor-v4.png`, `docs/captura-config-v4.png`
-  e `docs/captura-instalado-v4.png` (o app instalado, com os dados reais do
+    etiqueta que vem antes;
+  - `a_paleta_passa_na_wcag_aa` — a razão de contraste de cada par de cor
+    que o app usa (texto ≥ 4,5:1; borda de etiqueta ≥ 3:1).
+- Capturas: `docs/captura-layout-v5.png` (tela principal com dois
+  despertadores), `docs/captura-editor-v5.png`, `docs/captura-config-v5.png`
+  e `docs/captura-instalado-v5.png` (o app instalado, com os dados reais do
   owner: o card das 07:00 com "Repetir amanhã", "Editar", "Testar" e "×" na
   linha de baixo, **sem sobrepor** as etiquetas).
 - Nenhum dado do owner foi mexido: o `last_rung = 2026-11-18` continua lá, e
   rearmar o alarme de "uma vez" segue sendo decisão do owner.
+
+### 14.7 O veredito do quality gate (Dedé)
+
+O gate desta rodada (`docs/arquitetura/pedido-dede-quality-gate-rodada-layout-v4.md`)
+devolveu **PASS**, com os **13 critérios de aceite** cumpridos. O veredito
+completo está em
+[`docs/arquitetura/quality-gate-layout-v4-dede.md`](arquitetura/quality-gate-layout-v4-dede.md).
+
+| Achado do gate | Gravidade | O que foi feito |
+|---|---|---|
+| "Ausência de validação visual formal da paleta WCAG AA" | LOW | **Feito.** O teste `a_paleta_passa_na_wcag_aa` mede a razão de contraste de **todos** os pares de cor que o app usa de verdade. Ele **achou uma violação real**: o *hover* do botão primário (`rgb(214, 82, 16)` com texto branco) dava **4,14:1**, abaixo dos 4,5:1 da WCAG AA. A cor foi ajustada para `rgb(203, 72, 9)` (**4,70:1**) e a borda da etiqueta ficou mais presente (`gamma 0,55` → `0,70`), subindo para 3,2:1–4,2:1 contra o cartão |
+| "Criar PR para revisão com branch `feat/interface-nova`" | required | **Feito:** PR #1 (`feat/interface-nova` → `main`) |
+| "Verificar licenças em dependências (evitar GPL/AGPL)" | required | **Feito de novo**, com `cargo metadata` (não só com `cargo tree`): **357** pacotes no grafo completo e **140** no binário do Windows. Só dois mencionam GPL: `self_cell` (Apache-2.0 OU GPL-2.0-only, consumida sob a opção permissiva) e `r-efi` (MIT OU Apache-2.0 OU LGPL-2.1-or-later, e só entra como *build-dependency* do `cc`, fora do processo) |
+| "A validação do som (Core Audio) não foi testada nesta rodada" | warning | Segue de fora: esta rodada é de layout, e nada de áudio foi tocado |
+
+### 14.8 O contraste medido na tela real
+
+Os números do teste batem com o que está **desenhado**: medindo os pixels da
+captura do app **instalado** (`docs/captura-instalado-v5.png`):
+
+| Par | Medido na tela |
+|---|---|
+| texto da etiqueta sobre o cartão | 6,38:1 |
+| borda da etiqueta sobre o cartão | 3,75:1 |
+| texto branco no botão primário | 5,18:1 |
+| texto do botão neutro | 13,42:1 |
+| relógio sobre o cartão | 16,40:1 |

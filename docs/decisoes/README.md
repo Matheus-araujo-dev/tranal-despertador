@@ -100,6 +100,16 @@ porquê em [`../SPEC.md`](../SPEC.md):
 - **Altura das colunas calculada antes do `horizontal`**: dentro de um layout
   horizontal, o egui devolve `available_height() = 0` no primeiro quadro, e
   as colunas sumiam da tela.
+- **O contraste da paleta é medido por teste, não por olho** (§14.7): o gate de
+  qualidade apontou que a validação da WCAG AA era só "visual". O teste
+  `a_paleta_passa_na_wcag_aa` calcula a razão de contraste de **todos** os
+  pares de cor que o app usa. Ele achou uma violação real — o *hover* do botão
+  primário (`rgb(214, 82, 16)` com texto branco) dava **4,14:1** — e a cor foi
+  corrigida para `rgb(203, 72, 9)` (**4,70:1**), o laranja mais claro que ainda
+  passa no AA. A borda da etiqueta também ficou mais presente (`gamma 0,55` →
+  `0,70`), para chegar a 3:1 contra o cartão (WCAG 1.4.11).
+- **As cores são as do app, com os números medidos**: o laranja continua sendo
+  a identidade do Tranal; a correção foi no **valor**, não na paleta.
 
 ## Riscos em aberto
 
@@ -111,9 +121,16 @@ porquê em [`../SPEC.md`](../SPEC.md):
 
 ## Licenças das dependências (auditoria)
 
-`cargo tree` → 251 dependências transitivas. O inventário completo está no
+Auditoria refeita nesta rodada com `cargo metadata` (o `cargo tree` sozinho não
+mostra o campo de licença): **357** pacotes no grafo completo e **140** no
+binário do Windows. O inventário completo está no
 [`README.md` do repositório](../README.md#licenças). Resumo: MIT/Apache/BSD/ISC/
 Zlib/0BSD/Unlicense, **MPL-2.0** (symphonia, copyleft de arquivo, sem
 modificação do código-fonte), OFL-1.1 (fontes do egui), BSL-1.0, Unicode-3.0 e
 uma dupla **Apache-2.0 OU GPL-2.0-only** (`self_cell`, consumida sob
 Apache-2.0). **Nenhuma GPL/AGPL no processo** (regra D012).
+
+O único outro pacote que menciona GPL no campo de licença é o `r-efi`
+(MIT OU Apache-2.0 OU LGPL-2.1-or-later): ele entra só como
+*build-dependency* do `cc` (que compila o `android-activity` e o `chrono`),
+ou seja, **fora do processo** do app, e sob a opção permissiva.

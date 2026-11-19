@@ -4,7 +4,7 @@ Despertador desktop para **Windows 10/11**, escrito em **Rust**. Interface dark,
 feita para ser usada em um clique, e leve: o binário é nativo (sem navegador
 embarcado) e o agendamento **dorme** até o próximo evento.
 
-![Interface principal](docs/captura-layout-v4.png)
+![Interface principal](docs/captura-layout-v5.png)
 
 ## O que ele faz
 
@@ -41,6 +41,11 @@ embarcado) e o agendamento **dorme** até o próximo evento.
   interruptor, as etiquetas (“Todo dia”, o som, “100% no aparelho”, o
   desafio) e os botões de ação (“Repetir amanhã”, “Editar”, “Testar”, “×”)
   — cada grupo na sua linha, sem nada por cima de nada.
+- **Contraste medido por teste**: um teste do próprio app calcula a razão de
+  contraste de **todos** os pares de cor em uso (texto ≥ 4,5:1 e borda de
+  etiqueta ≥ 3:1, como manda a WCAG AA). Ele já pegou uma violação real — o
+  *hover* do botão principal, que estava em 4,14:1 — e o laranja foi
+  ajustado para 4,70:1.
 
 ## Instalar
 
@@ -107,7 +112,8 @@ Decisões estruturais, com o porquê de cada escolha: [`docs/SPEC.md`](docs/SPEC
 ## Licenças
 
 O app é do dono e o repositório é **privado**. As dependências foram auditadas
-com `cargo tree` (251 dependências transitivas):
+com `cargo metadata` (**357** pacotes no grafo completo, **140** no binário do
+Windows):
 
 | Licença | Quem usa |
 |---|---|
@@ -117,10 +123,11 @@ com `cargo tree` (251 dependências transitivas):
 | BSL-1.0 | `clipboard-win`, `error-code` |
 | Unicode-3.0 | `unicode-ident`, `unicode-properties` |
 | **Apache-2.0 OU GPL-2.0-only** (dupla) | `self_cell` — o app usa a opção **Apache-2.0**, a permissiva |
+| MIT OU Apache-2.0 OU LGPL-2.1-or-later | `r-efi` — entra só como *build-dependency* do `cc`, ou seja, **fora do processo** do app, e sob a opção permissiva |
 
 **Nada GPL/AGPL no processo** (regra D012 do `AGENTS.md`): nenhuma crate é
-GPL-only nem AGPL, e a única dupla (`self_cell`) é consumida sob a opção
-Apache-2.0.
+GPL-only nem AGPL, e as duas opções dupla/licença copyleft acima são consumidas
+sob a opção permissiva.
 
 O que a MPL-2.0 do symphonia exige, na prática: se o **arquivo-fonte do
 symphonia** for modificado, essas modificações precisam ser publicadas. O
