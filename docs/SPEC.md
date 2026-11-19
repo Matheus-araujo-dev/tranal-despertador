@@ -1,4 +1,4 @@
-﻿# Tranal Despertador — especificação e arquitetura
+# Tranal Despertador — especificação e arquitetura
 
 > Documento no padrão da skill `development.architecture` do Projeto IA
 > (design, interfaces, diagramas, trade-offs, recomendações, riscos).
@@ -710,7 +710,7 @@ da casa. O que foi trazido:
 | Do Sentinel | Aqui |
 |---|---|
 | `CardBorder` com `Padding 20` | `ui::cartao()` com 20 px de respiro interno (era 18×16) |
-| Margem de página em volta do conteúdo | `ui::MARGEM_PAGINA` (24 px) e `MARGEM_PAGINA_VERTICAL` (20 px) |
+| Margem de página em volta do conteúdo | `ui::MARGEM_PAGINA` (32 px) e `MARGEM_PAGINA_VERTICAL` (24 px) — ver §14 |
 | Barra de título fina (`Row 44`) com divisória | `topo()` virou uma faixa fina com linha divisória embaixo |
 | `H1` 26 semi-bold, `Hero` 34, `Label` 10,5, `Sub` 13 | `ESTILO_TITULO`, `ESTILO_HERO`, `ESTILO_ROTULO`, `ESTILO_SUB` |
 | `PrimaryButton` com padding largo (28×11) | `botao_primario_grande` na linha do título da página |
@@ -807,3 +807,111 @@ aparece com valor acima de zero — a correção está no código
 
 O pedido ao Dedé está versionado em
 `docs/arquitetura/pedido-dede-quality-gate-rodada-layout.md`.
+
+## 14. O refactor do layout (rodada "100% do layout")
+
+O owner reclamou, com a captura da tela na mão:
+
+> *"os botões de repetir, editar e testar sobrepõe as informações do despertador,
+> o botão novo despertador completamente fora de posição com o texto sem
+> centralizar. Acho que precisamos usar as skills de UX e UI disponíveis neste
+> computador para refatorar 100% do layout desse sistema, baseando-se no layout
+> do Tranal Sentinel"*.
+
+As skills usadas nesta rodada foram a **UI Designer**
+(`design-ui-designer/skill.md`) e a **UX Architect**
+(`design-ux-architect/skill.md`), mais o roteiro de revisão de interface do
+Projeto IA (`skills/ui-ux/interface-review.yaml`): usabilidade →
+acessibilidade → responsividade → consistência.
+
+### 14.1 As três causas-raiz (medidas, não deduzidas)
+
+| Defeito visto pelo owner | Causa real (lida na fonte do egui 0.37) |
+|---|---|
+| Botões por cima das etiquetas | `cartao_alarme()` colocava as etiquetas (`horizontal_wrapped`) e os botões (`with_layout(right_to_left)`) **na mesma linha**. O `with_layout` cria um escopo que ocupa **todo** o espaço do pai: como as etiquetas já tinham tomado a largura toda, o escopo dos botões ficou com ~0 px e os botões foram desenhados **por cima** delas |
+| "+ Novo despertador" fora de posição e com o texto torto | O mesmo `with_layout`: em `Layout::right_to_left`, o `main_align` é `Center` (o alinhamento principal é ignorado no eixo da linha) e o `cross_align` é o vertical — o botão ficava **centralizado** no espaço restante, não na borda. E o texto dentro do botão é posicionado pelo sistema de **atoms** do egui 0.37, que não garante centralização |
+| Lista encostando na borda direita | A coluna da lista era desenhada com a largura toda do pai (`available_width()`), sem respiro próprio; com a margem de página pequena (24 px) e o scrollbar por fora, o cartão chegava a ~22 px da borda da janela |
+
+### 14.2 O design system refeito (`src/ui.rs`)
+
+**Um componente só de botão**, desenhado à mão (como o chip e o interruptor já
+eram), em vez do `egui::Button` do 0.37:
+
+- `EstiloBotao::{Primario, Neutro, Fantasma, Perigo, Icone}` — mesma forma,
+  mesmo respiro, mesmo texto centralizado em qualquer tela;
+- medidas tiradas do Sentinel: botão principal com `Padding 28,11` e canto de
+  10 px, cartão com `Padding 20` e canto de 16 px, etiqueta com `Padding 13,5`
+  e canto de 14 px **fundo transparente com borda de 1 px** (o chip do
+  Sentinel), interruptor de 46×26;
+- **a largura do botão é medida antes de desenhá-lo**
+  (`ui::largura_botao`), com a mesma fonte com que o texto vai ser pintado —
+  é o que permite alinhar um grupo de botões na borda direita;
+- `ui::acoes_a_direita` desenha um grupo de botões encostado na borda
+  direita: mede cada botão, reserva o espaço que sobra com `add_space` e
+  desenha. **Sem `with_layout`**, que é a origem do defeito;
+- `ui::empurra_para_direita` para quando o item da direita tem largura
+  conhecida (o interruptor do cartão).
+
+Outros ajustes: margem de página **32 px** (era 24) e **24 px** na vertical
+(era 20) — o Sentinel usa 36/30 na página; relógio em 48 px (era 56) para
+competir com a hora do alarme (34 px); o seletor segmentado e o múltiplo
+passaram a **descontar o espaço entre os segmentos** da largura (eles
+estouravam a borda e esticavam o painel que os contém).
+
+### 14.3 O cartão do despertador
+
+Antes as etiquetas e os botões disputavam a mesma linha. Agora são **três
+linhas**:
+
+```
+┌────────────────────────────────────────────────────────┐
+│ 07:00  Café da manhã                          [ ●─── ]  │  linha 1: hora, nome, interruptor
+│ [Todo dia][Clássico][100% no aparelho][desafio]        │  linha 2: as etiquetas, só elas
+│                              Editar  Testar  ×         │  linha 3: as ações, à direita
+└────────────────────────────────────────────────────────┘
+```
+
+### 14.4 O cabeçalho da página
+
+O H1 e o subtítulo à esquerda, a ação principal à direita — o mesmo arranjo
+do Sentinel (`Grid` com `H1`+`Sub` à esquerda e `OutlineButton` com
+`HorizontalAlignment=Right`). O botão fica **centrado na altura do H1**: o
+egui alinha as *caixas*, e a caixa da linha tem o ascendente da fonte acima da
+letra maiúscula; centralizar na linha é o que põe o texto do botão na mesma
+altura das letras do título.
+
+A barra do topo ganhou a forma do Sentinel: `TRANAL` forte + `DESPERTADOR`
+fraco + o nome da página, e a ação à direita.
+
+### 14.5 Armadilhas do egui 0.37 que ficam registradas
+
+1. **`with_layout` ocupa todo o espaço do pai** — por isso ele nunca mais é
+   usado para alinhar alguma coisa à direita.
+2. **`Layout::right_to_left` centraliza no eixo principal** — o
+   `main_align` é `Center` e só o eixo transversal é controlado pelo
+   argumento. Alinhar à direita com ele é enganoso.
+3. **O `Button` do 0.37 posiciona o texto pelo sistema de atoms** — por isso
+   os botões são desenhados à mão.
+4. **`available_height()` dentro de `horizontal` = 0** (continua valendo).
+5. **O `seletor_segmentado` não descontava o espaço entre os segmentos** — o
+   conteúdo passava da borda e o `ScrollArea` do editor esticava o modal
+   em 35 px (achado medindo as capturas, não adivinhando).
+
+### 14.6 Verificação
+
+- `cargo test`: **74 verdes** (2 novos, que medem o defeito);
+  `cargo clippy --all-targets -- -D warnings`: limpo;
+  `cargo build --release`: OK.
+- **Dois testes novos medem o defeito** (`src/ui.rs`):
+  - `o_texto_do_botao_fica_centralizado` — o retângulo do texto desenhado
+    tem que ter o mesmo centro do retângulo do botão (tolerância de 1 px);
+  - `o_grupo_de_botoes_para_na_direita_sem_invadir_o_conteudo` — o grupo de
+    botões encosta na borda direita da linha (1 px) e **não invade** a
+    etiqueta que vem antes.
+- Capturas: `docs/captura-layout-v4.png` (tela principal com dois
+  despertadores), `docs/captura-editor-v4.png`, `docs/captura-config-v4.png`
+  e `docs/captura-instalado-v4.png` (o app instalado, com os dados reais do
+  owner: o card das 07:00 com "Repetir amanhã", "Editar", "Testar" e "×" na
+  linha de baixo, **sem sobrepor** as etiquetas).
+- Nenhum dado do owner foi mexido: o `last_rung = 2026-11-18` continua lá, e
+  rearmar o alarme de "uma vez" segue sendo decisão do owner.

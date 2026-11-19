@@ -75,12 +75,21 @@ porquê em [`../SPEC.md`](../SPEC.md):
 - **Ícone desenhado em código** (`src/icone.rs`), sem PNG/ICO versionado: o
   `.ico` dos atalhos é exportado pelo próprio app (`--exportar-icone`) a
   partir do mesmo desenho da bandeja — uma só fonte para o ícone.
-- **Layout com a referência do Tranal Sentinel** (`docs/SPEC.md` §13): o
+- **Layout com a referência do Tranal Sentinel** (`docs/SPEC.md` §13 e §14): o
   owner pediu "inspiração" no app da casa. O que foi trazido: a **margem de
-  página** (24 px), o **respiro do cartão** (20 px, o `Padding 20` do
+  página** (32 px), o **respiro do cartão** (20 px, o `Padding 20` do
   Sentinel), a **barra de topo fina** com divisória, a **hierarquia
   tipográfica** (H1 26, Hero 34, Label 10,5, Sub 13) e a **ação principal na
   linha do título** da página.
+- **Um componente só de botão, desenhado à mão** (`src/ui.rs`,
+  `docs/SPEC.md` §14): o `egui::Button` do 0.37 posiciona o texto pelo sistema
+  de atoms e não garante a centralização; o `with_layout` — a forma "certa" de
+  alinhar algo à direita — ocupa o espaço todo do pai e **desenha por cima** do
+  conteúdo anterior. Por isso: botão desenhado à mão, com a largura **medida**
+  antes de ser pintado, e o grupo de ações alinhado à direita por
+  `add_space`.
+- **Etiquetas e botões do cartão em linhas separadas** (§14): dividiam a mesma
+  linha, e era a causa da sobreposição que o owner viu.
 - **A paleta do Sentinel NÃO foi adotada**: ele é monocromático; o laranja do
   Despertador é a identidade do app e já passa na WCAG AA (7,1:1 no texto,
   5,2:1 no botão). A reclamação era de **espaçamento**, e trocar a cor não a

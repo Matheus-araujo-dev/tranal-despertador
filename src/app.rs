@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Datelike, Local, Timelike};
 use eframe::egui;
-use eframe::egui::Color32;
 
 use crate::audio::{self, Saida};
 use crate::arquivos;
@@ -86,6 +85,19 @@ struct AcoesAlarme {
     alternar: bool,
     testar: bool,
     rearmar: bool,
+}
+
+/// Uma ação do cartão de um despertador.
+///
+/// O cartão tem um grupo de botões cujo conteúdo muda (o "Repetir amanhã"
+/// só existe em alarme de uma vez que já tocou), então cada botão precisa
+/// saber o que é.
+#[derive(Clone, Copy)]
+enum AcaoCartao {
+    Repetir,
+    Editar,
+    Testar,
+    Excluir,
 }
 
 /// Aplicação do Tranal Despertador.
@@ -232,28 +244,50 @@ impl TranalApp {
     /// Não é mais um cartão: é uma faixa com uma linha divisória embaixo,
     /// que separa a navegação do conteúdo.
     fn topo(&mut self, ui: &mut egui::Ui) {
+        // A barra tem 44 px (a barra de título do Sentinel): o respiro de
+        // cima e de baixo sobra da altura do botão.
+        let respiro = ((ui::ALTURA_BARRA - 34.0) / 2.0).round() as i8;
         egui::Frame::new()
             .fill(Tema::FUNDO)
-            .inner_margin(egui::Margin::symmetric(ui::MARGEM_PAGINA, 6))
+            .inner_margin(egui::Margin::symmetric(ui::MARGEM_PAGINA, respiro))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    // O nome do app, como o "TRANAL SENTINEL" do Sentinel.
                     ui.label(
-                        egui::RichText::new("Tranal Despertador")
+                        egui::RichText::new("TRANAL")
+                            .color(Tema::TEXTO)
+                            .size(13.0)
+                            .strong(),
+                    );
+                    ui.label(
+                        egui::RichText::new(" DESPERTADOR")
                             .color(Tema::TEXTO_FRACO)
                             .size(13.0),
                     );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui::botao_neutro(ui, "Configurações").clicked() {
-                            self.mostrar_config = !self.mostrar_config;
-                            if self.mostrar_config {
-                                self.biblioteca = tones::biblioteca();
-                            }
+                    // A página atual, como o `TitlePage` do Sentinel.
+                    ui.add_space(ui::espaco::M);
+                    ui.label(
+                        egui::RichText::new("Despertadores")
+                            .color(Tema::TEXTO_FRACO)
+                            .size(13.0),
+                    );
+                    // As ações vão para a ponta direita: o grupo é medido
+                    // antes de ser desenhado (ver `ui::acoes_a_direita`).
+                    let clicou = ui::acoes_a_direita(
+                        ui,
+                        &[ui::Acao::nova("Configurações", ui::EstiloBotao::Neutro)],
+                    );
+                    if clicou.first().copied().unwrap_or(false) {
+                        self.mostrar_config = !self.mostrar_config;
+                        if self.mostrar_config {
+                            self.biblioteca = tones::biblioteca();
                         }
-                    });
+                    }
                 });
             });
         // A linha que separa a barra do conteúdo.
-        let (linha, _) = ui.allocate_exact_size(egui::Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
+        let (linha, _) =
+            ui.allocate_exact_size(egui::Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
         ui.painter().rect_filled(linha, 0.0, Tema::BORDA);
     }
 
@@ -261,7 +295,8 @@ impl TranalApp {
     ///
     /// O botão "Novo despertador" mora **aqui**, na linha do título, e não
     /// solto embaixo do cartão: era exatamente o que o owner achou "grudado
-    /// na borda do app".
+    /// na borda do app". No Sentinel a página faz o mesmo — H1 e `Sub` à
+    /// esquerda, ação principal à direita.
     fn cabecalho_pagina(&mut self, ui: &mut egui::Ui) {
         let alarmes = self.alarms();
         let ativos = alarmes.iter().filter(|a| a.enabled).count();
@@ -276,16 +311,19 @@ impl TranalApp {
         };
 
         ui.vertical(|ui| {
+            // A linha do H1 com a ação principal na ponta direita. O botão
+            // fica **centrado** na altura do H1 (o `horizontal` do egui
+            // centra os itens na linha), que é o que deixa o texto do botão
+            // na mesma altura das letras do título.
             ui.horizontal(|ui| {
                 ui::titulo_pagina(ui, "Despertadores");
-                // O `Align` do egui alinha no EIXO TRANSVERSO do layout: num
-                // layout horizontal, `Min` e o topo. Com `Center`, o botão
-                // descia para o meio da janela.
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                    if ui::botao_primario_grande(ui, "+  Novo despertador").clicked() {
-                        self.abrir_editor(None);
-                    }
-                });
+                ui::empurra_para_direita(
+                    ui,
+                    ui::largura_botao(ui, "+ Novo despertador", ui::EstiloBotao::Primario),
+                );
+                if ui::botao_primario(ui, "+ Novo despertador").clicked() {
+                    self.abrir_editor(None);
+                }
             });
             ui::sub(ui, &proximo_texto);
         });
@@ -293,7 +331,7 @@ impl TranalApp {
 
     fn coluna_relogio(&mut self, ui: &mut egui::Ui, altura: f32) {
         ui.allocate_ui_with_layout(
-            egui::Vec2::new(340.0, altura),
+            egui::Vec2::new(ui::LARGURA_RELOGIO, altura),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 ui::cartao(ui, |ui| {
@@ -301,7 +339,7 @@ impl TranalApp {
                     ui.label(
                         egui::RichText::new(agora.format("%H:%M").to_string())
                             .color(Tema::TEXTO)
-                            .size(56.0)
+                            .size(48.0)
                             .strong()
                             .monospace(),
                     );
@@ -379,7 +417,7 @@ impl TranalApp {
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
+                    .auto_shrink([true, false])
                     .show(ui, |ui| {
                         if alarms.is_empty() {
                             ui::cartao(ui, |ui| {
@@ -488,7 +526,6 @@ impl TranalApp {
         ui::cartao(ui, |ui| {
             // Linha 1: hora, nome e interruptor.
             ui.horizontal(|ui| {
-                ui.add_space(2.0);
                 ui.label(
                     egui::RichText::new(alarme.time_label())
                         .color(if alarme.enabled {
@@ -500,53 +537,77 @@ impl TranalApp {
                         .strong()
                         .monospace(),
                 );
-                ui.add_space(6.0);
+                ui.add_space(ui::espaco::S);
                 ui.label(
                     egui::RichText::new(nome_do_alarme(alarme))
                         .color(destaque)
                         .size(16.0),
                 );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mut ligado = alarme.enabled;
-                    if ui::interruptor(ui, &mut ligado).changed() {
-                        acoes.alternar = true;
-                    }
-                });
+                // O interruptor fica na ponta direita da linha.
+                ui::empurra_para_direita(ui, ui::LARGURA_INTERRUPTOR);
+                let mut ligado = alarme.enabled;
+                if ui::interruptor(ui, &mut ligado).changed() {
+                    acoes.alternar = true;
+                }
             });
 
-            ui.add_space(ui::espaco::S);
+            // Linha 2: as etiquetas, em uma linha **só delas**.
+            //
+            // Antes elas dividiam a linha com os botões, e o `with_layout`
+            // do egui (que ocupa o espaço todo do pai) acabava desenhando os
+            // botões **por cima** das etiquetas — era o defeito que o dono
+            // apontou na captura.
+            ui.add_space(ui::espaco::M);
+            ui.horizontal_wrapped(|ui| {
+                ui::chip(ui, &alarme.repeat.describe(), Tema::AZUL);
+                ui::chip(ui, &nome_som(&alarme.sound), Tema::TEXTO_FRACO);
+                if alarme.force_device_volume {
+                    ui::chip(ui, "100% no aparelho", Tema::VERDE);
+                }
+                if alarme.dismiss.desafio != Desafio::Nenhum {
+                    ui::chip(ui, "desafio", Tema::ACCENT);
+                }
+            });
 
-            // Linha 2: etiquetas à esquerda, botões à direita.
+            // Linha 3: as ações, encostadas na borda direita do cartão.
+            ui.add_space(ui::espaco::M);
+            let mut alvos: Vec<(AcaoCartao, ui::Acao)> = Vec::new();
+            // D9: alarme "uma vez" que ja tocou pode ser rearmado
+            // para o dia seguinte sem precisar recriar o alarme.
+            if matches!(alarme.repeat, RepeatRule::Once) && alarme.last_rung.is_some() {
+                alvos.push((
+                    AcaoCartao::Repetir,
+                    ui::Acao::nova("Repetir amanhã", ui::EstiloBotao::Neutro),
+                ));
+            }
+            alvos.push((
+                AcaoCartao::Editar,
+                ui::Acao::nova("Editar", ui::EstiloBotao::Neutro),
+            ));
+            alvos.push((
+                AcaoCartao::Testar,
+                ui::Acao::nova("Testar", ui::EstiloBotao::Neutro),
+            ));
+            alvos.push((
+                AcaoCartao::Excluir,
+                ui::Acao::nova("×", ui::EstiloBotao::Icone).com_dica("Excluir"),
+            ));
+            let lista: Vec<ui::Acao> = alvos.iter().map(|(_, a)| a.clone()).collect();
+            // O grupo fica numa **linha horizontal**: é nela que o espaço
+            // sobrando empurra os botões para a direita do cartão.
             ui.horizontal(|ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui::chip(ui, &alarme.repeat.describe(), Tema::AZUL);
-                    ui::chip(ui, &nome_som(&alarme.sound), Tema::TEXTO_FRACO);
-                    if alarme.force_device_volume {
-                        ui::chip(ui, "100% no aparelho", Tema::VERDE);
+                let clicados = ui::acoes_a_direita(ui, &lista);
+                for ((alvo, _), clicado) in alvos.iter().zip(clicados.iter()) {
+                    if !*clicado {
+                        continue;
                     }
-                    if alarme.dismiss.desafio != Desafio::Nenhum {
-                        ui::chip(ui, "desafio", Tema::ACCENT);
+                    match alvo {
+                        AcaoCartao::Repetir => acoes.rearmar = true,
+                        AcaoCartao::Editar => acoes.editar = true,
+                        AcaoCartao::Testar => acoes.testar = true,
+                        AcaoCartao::Excluir => acoes.remover = true,
                     }
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("×").on_hover_text("Excluir").clicked() {
-                        acoes.remover = true;
-                    }
-                    if ui::botao_neutro(ui, "Testar").clicked() {
-                        acoes.testar = true;
-                    }
-                    if ui::botao_neutro(ui, "Editar").clicked() {
-                        acoes.editar = true;
-                    }
-                    // D9: alarme "uma vez" que ja tocou pode ser rearmado
-                    // para o dia seguinte sem precisar recriar o alarme.
-                    if matches!(alarme.repeat, RepeatRule::Once)
-                        && alarme.last_rung.is_some()
-                        && ui::botao_neutro(ui, "Repetir amanhã").clicked()
-                    {
-                        acoes.rearmar = true;
-                    }
-                });
+                }
             });
         });
         acoes
@@ -661,17 +722,20 @@ impl TranalApp {
                         .size(19.0)
                         .strong(),
                     );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui::botao_fantasma(ui, "Fechar").clicked() {
-                            fechar = true;
-                        }
-                    });
+                    // O "Fechar" fica na ponta direita da linha do título.
+                    ui::empurra_para_direita(
+                        ui,
+                        ui::largura_botao(ui, "Fechar", ui::EstiloBotao::Fantasma),
+                    );
+                    if ui::botao_fantasma(ui, "Fechar").clicked() {
+                        fechar = true;
+                    }
                 });
                 ui.add_space(ui::espaco::M);
 
                 egui::ScrollArea::vertical()
                     .max_height(500.0)
-                    .auto_shrink([false, false])
+                    .auto_shrink([true, false])
                     .show(ui, |ui| {
                         // ------------------------------------------------ nome
                         ui::titulo_secao(ui, "nome");
@@ -698,19 +762,19 @@ impl TranalApp {
                             ui.add_space(ui::espaco::S);
                             ui.vertical(|ui| {
                                 ui.horizontal(|ui| {
-                                    if ui.button("−1h").on_hover_text("Uma hora a menos").clicked() {
+                                    if ui::botao_neutro(ui, "−1h").on_hover_text("Uma hora a menos").clicked() {
                                         mover_hora(&mut editor, -60);
                                     }
-                                    if ui.button("+1h").on_hover_text("Uma hora a mais").clicked() {
+                                    if ui::botao_neutro(ui, "+1h").on_hover_text("Uma hora a mais").clicked() {
                                         mover_hora(&mut editor, 60);
                                     }
                                 });
                                 ui.horizontal(|ui| {
-                                    if ui.button("−5m").on_hover_text("Cinco minutos a menos").clicked()
+                                    if ui::botao_neutro(ui, "−5m").on_hover_text("Cinco minutos a menos").clicked()
                                     {
                                         mover_hora(&mut editor, -5);
                                     }
-                                    if ui.button("+5m").on_hover_text("Cinco minutos a mais").clicked()
+                                    if ui::botao_neutro(ui, "+5m").on_hover_text("Cinco minutos a mais").clicked()
                                     {
                                         mover_hora(&mut editor, 5);
                                     }
@@ -820,26 +884,11 @@ impl TranalApp {
                                     SoundChoice::Arquivo { caminho } if *caminho == audio.caminho
                                 );
                                 ui.horizontal(|ui| {
-                                    let texto = egui::RichText::new(format!("  {}", audio.nome))
-                                        .color(if marcado {
-                                            Color32::WHITE
-                                        } else {
-                                            Tema::TEXTO_FRACO
-                                        })
-                                        .size(13.0);
-                                    let resp = ui.add(
-                                        egui::Button::new(texto)
-                                            .fill(if marcado {
-                                                Tema::ACCENT_FORTE
-                                            } else {
-                                                Tema::PAINEL_ALTO
-                                            })
-                                            .corner_radius(ui::raio(ui::raio::CONTROLE))
-                                            .stroke(egui::Stroke::new(
-                                                1.0,
-                                                if marcado { Tema::ACCENT } else { Tema::BORDA },
-                                            )),
-                                    );
+                                    let resp = if marcado {
+                                        ui::botao_primario(ui, &audio.nome)
+                                    } else {
+                                        ui::botao_neutro(ui, &audio.nome)
+                                    };
                                     if resp.clicked() {
                                         editor.rascunho.sound = SoundChoice::Arquivo {
                                             caminho: audio.caminho.clone(),
@@ -901,26 +950,11 @@ impl TranalApp {
                                 } else {
                                     saida.nome.clone()
                                 };
-                                let texto = egui::RichText::new(rotulo)
-                                    .color(if marcado {
-                                        Color32::WHITE
-                                    } else {
-                                        Tema::TEXTO_FRACO
-                                    })
-                                    .size(12.0);
-                                let resp = ui.add(
-                                    egui::Button::new(texto)
-                                        .fill(if marcado {
-                                            Tema::ACCENT_FORTE
-                                        } else {
-                                            Tema::PAINEL_ALTO
-                                        })
-                                        .corner_radius(ui::raio(ui::raio::CONTROLE))
-                                        .stroke(egui::Stroke::new(
-                                            1.0,
-                                            if marcado { Tema::ACCENT } else { Tema::BORDA },
-                                        )),
-                                );
+                                let resp = if marcado {
+                                    ui::botao_primario(ui, &rotulo)
+                                } else {
+                                    ui::botao_neutro(ui, &rotulo)
+                                };
                                 if resp.clicked() {
                                     if let Some(pos) = editor
                                         .rascunho
@@ -1005,7 +1039,6 @@ impl TranalApp {
                             editor.rascunho.dismiss.desafio = desafios[escolha];
                         }
                     });
-
                 ui.add_space(ui::espaco::L);
                 ui::linha_separadora(ui);
                 ui.add_space(ui::espaco::M);
@@ -1019,11 +1052,16 @@ impl TranalApp {
                     if ui::botao_fantasma(ui, "Salvar como padrão").clicked() {
                         salvar_como_padrao = true;
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if editor.id_original.is_some() && ui::botao_fantasma(ui, "Excluir").clicked() {
+                    // O "Excluir" fica na ponta direita da linha.
+                    if editor.id_original.is_some() {
+                        ui::empurra_para_direita(
+                            ui,
+                            ui::largura_botao(ui, "Excluir", ui::EstiloBotao::Fantasma),
+                        );
+                        if ui::botao_fantasma(ui, "Excluir").clicked() {
                             excluir = true;
                         }
-                    });
+                    }
                 });
             });
 
@@ -1441,17 +1479,20 @@ impl TranalApp {
                             .size(19.0)
                             .strong(),
                     );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui::botao_fantasma(ui, "Fechar").clicked() {
-                            fechar = true;
-                        }
-                    });
+                    // O "Fechar" fica na ponta direita da linha do título.
+                    ui::empurra_para_direita(
+                        ui,
+                        ui::largura_botao(ui, "Fechar", ui::EstiloBotao::Fantasma),
+                    );
+                    if ui::botao_fantasma(ui, "Fechar").clicked() {
+                        fechar = true;
+                    }
                 });
                 ui.add_space(ui::espaco::M);
 
                 egui::ScrollArea::vertical()
                     .max_height(470.0)
-                    .auto_shrink([false, false])
+                    .auto_shrink([true, false])
                     .show(ui, |ui| {
                         // ------------------------------------------------- geral
                         ui::titulo_secao(ui, "geral");

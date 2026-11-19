@@ -4,7 +4,7 @@ Despertador desktop para **Windows 10/11**, escrito em **Rust**. Interface dark,
 feita para ser usada em um clique, e leve: o binário é nativo (sem navegador
 embarcado) e o agendamento **dorme** até o próximo evento.
 
-![Interface principal](docs/captura-layout-v3.png)
+![Interface principal](docs/captura-layout-v4.png)
 
 ## O que ele faz
 
@@ -32,11 +32,15 @@ embarcado) e o agendamento **dorme** até o próximo evento.
 - **Instalador**: um comando instala o app no PC, cria os atalhos e liga o
   início automático.
 - **Interface com respiro**: nada encosta na borda da janela. A página tem
-  24 px de margem, os cartões têm 20 px de respiro interno e a ação
+  32 px de margem, os cartões têm 20 px de respiro interno e a ação
   principal (“+ Novo despertador”) fica na linha do título da página. O
   layout segue a referência do **Tranal Sentinel** (cards com `Padding 20`,
   hierarquia H1/Hero/Label/Sub, números em monoespaçada), com a paleta laranja
   do app, que já passa na WCAG AA.
+- **Cartão do despertador em três linhas**: a hora com o nome e o
+  interruptor, as etiquetas (“Todo dia”, o som, “100% no aparelho”, o
+  desafio) e os botões de ação (“Repetir amanhã”, “Editar”, “Testar”, “×”)
+  — cada grupo na sua linha, sem nada por cima de nada.
 
 ## Instalar
 

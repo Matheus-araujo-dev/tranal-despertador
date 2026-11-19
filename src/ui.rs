@@ -3,12 +3,29 @@
 //! Tudo aqui é desenhado à mão (sem CSS, sem navegador): o app é uma janela
 //! nativa, e o objetivo é ficar bonito sem pesar na memória.
 //!
-//! As cores foram conferidas contra o fundo escuro pela regra de contraste
-//! da WCAG (AA): texto normal precisa de 4.5:1, texto grande de 3:1.
-//! Por isso existem duas variações do laranja e do vermelho: uma para
+//! A referência de **estrutura** é o Tranal Sentinel (WPF): barra de topo
+//! fina, cabeçalho de página com o H1 à esquerda e a ação principal à
+//! direita, cartões com 20 px de respiro e cantos de 16 px, e a hierarquia
+//! tipográfica H1 26 / Hero 34 / Label 10,5 / Sub 13. A paleta continua
+//! sendo a do app (o laranja é a identidade do Tranal), mas segue a regra de
+//! contraste da WCAG (AA): texto normal precisa de 4,5:1, texto grande de
+//! 3:1. Por isso existem duas variações do laranja e do vermelho: uma para
 //! **texto e bordas** (clara, 7:1 ou mais no fundo) e outra para
 //! **preenchimento de botão** (escura, para o texto branco em cima dela
-//! chegar a 4.5:1).
+//! chegar a 4,5:1).
+//!
+//! Duas lições do egui 0.37 estão gravadas aqui, porque as duas custaram
+//! uma rodada de depuração:
+//!
+//! 1. `ui.with_layout(...)` cria um escopo que ocupa **todo** o espaço do
+//!    pai. Por isso, um grupo de botões alinhado à direita com `with_layout`
+//!    acaba desenhado **por cima** do conteúdo que vem antes (era o que
+//!    happening com os botões do cartão do despertador). Aqui o grupo é
+//!    medido antes e o espaço que sobra é reservado com `add_space`.
+//! 2. O `egui::Button` do 0.37 posiciona o texto pelo sistema de atoms, e
+//!    o resultado não é o mesmo em todas as situações. Por isso os botões
+//!    aqui são **desenhados à mão** (como o chip e o interruptor): o texto
+//!    fica sempre centralizado no retângulo.
 
 use egui::{Align2, Color32, CornerRadius, FontId, Response, Sense, Stroke, Ui, Vec2};
 
@@ -24,7 +41,7 @@ impl Tema {
     pub const PAINEL_ALTO: Color32 = Color32::from_rgb(29, 34, 46);
     /// Borda discreta.
     pub const BORDA: Color32 = Color32::from_rgb(42, 49, 64);
-    /// Borda de destaque (campo em foco).
+    /// Borda de destaque (campo em foco, botão no hover).
     pub const BORDA_FORTE: Color32 = Color32::from_rgb(62, 72, 92);
     /// Texto principal (15:1 no fundo).
     pub const TEXTO: Color32 = Color32::from_rgb(232, 236, 243);
@@ -34,22 +51,21 @@ impl Tema {
     pub const ACCENT: Color32 = Color32::from_rgb(255, 138, 40);
     /// Laranja de preenchimento: fundo de botão com texto branco (5.2:1).
     pub const ACCENT_FORTE: Color32 = Color32::from_rgb(194, 65, 12);
+    /// Laranja do botão primário no hover (4.9:1 com texto branco).
+    pub const ACCENT_CLARO: Color32 = Color32::from_rgb(214, 82, 16);
     /// Verde de confirmação (8.2:1 no fundo).
     pub const VERDE: Color32 = Color32::from_rgb(56, 190, 118);
     /// Vermelho de alerta (6.6:1 no fundo).
     pub const VERMELHO: Color32 = Color32::from_rgb(240, 110, 110);
     /// Vermelho de preenchimento (5.6:1 com texto branco).
     pub const VERMELHO_FORTE: Color32 = Color32::from_rgb(198, 40, 40);
+    /// Vermelho do botão de perigo no hover (5.1:1 com texto branco).
+    pub const VERMELHO_CLARO: Color32 = Color32::from_rgb(214, 58, 58);
     /// Azul de informação (7.1:1 no fundo).
     pub const AZUL: Color32 = Color32::from_rgb(88, 156, 255);
 }
 
 /// Escala de espaçamento (multiplos de 4, como manda a casa).
-///
-/// Os dois últimos existem para o **respiro da página**: o dono reclamou que
-/// o botão e as informações estavam "grudados na borda do app", e a
-/// referência de layout (o Tranal Sentinel) trabalha com cartões de 20 px de
-/// respiro e 24 px de margem de página.
 pub mod espaco {
     pub const XS: f32 = 4.0;
     pub const S: f32 = 8.0;
@@ -61,15 +77,21 @@ pub mod espaco {
 
 /// Respiro da página: nada encosta na borda da janela.
 ///
-/// O dono reclamou exatamente disso — *"o botão novo despertador e as
-/// informações estão grudadas na borda do app sem nenhum espaçamento"*. É a
-/// margem que o Tranal Sentinel usa entre a borda da janela e o conteúdo
-/// (14 px na barra lateral, 20 px dentro dos cartões).
-pub const MARGEM_PAGINA: i8 = 24;
+/// O dono reclamou exatamente disso — *"as informações estão grudadas na
+/// borda do app sem nenhum espaçamento"*. O Sentinel usa 36 px de margem
+/// lateral e 30 px de vertical na página; aqui é 32 e 24, um pouco menos
+/// porque a janela do despertador é menor.
+pub const MARGEM_PAGINA: i8 = 32;
 /// Respiro da página na vertical (em cima e embaixo).
-pub const MARGEM_PAGINA_VERTICAL: i8 = 20;
+pub const MARGEM_PAGINA_VERTICAL: i8 = 24;
 /// Respiro dentro de um cartão (o `Padding 20` do Sentinel).
 pub const PADDING_CARTAO: i8 = 20;
+/// Altura da barra do topo (a barra de título do Sentinel tem 44 px).
+pub const ALTURA_BARRA: f32 = 44.0;
+/// Largura da coluna do relógio (à esquerda da lista).
+pub const LARGURA_RELOGIO: f32 = 320.0;
+/// Largura do interruptor (para empurrar o resto da linha para a direita).
+pub const LARGURA_INTERRUPTOR: f32 = 46.0;
 
 /// Raios de canto.
 pub mod raio {
@@ -78,7 +100,7 @@ pub mod raio {
     /// Cartão.
     pub const CARTAO: u8 = 16;
     /// Pílula (etiqueta).
-    pub const PILULA: u8 = 12;
+    pub const PILULA: u8 = 14;
 }
 
 /// Raio padrão dos cartões.
@@ -175,6 +197,310 @@ pub fn aplicar(ctx: &egui::Context) {
     });
 }
 
+// ------------------------------------------------------------------ botões
+
+/// O visual de um botão.
+///
+/// É o **único** botão do app: as variantes são o mesmo componente com
+/// outras cores e medidas. Um componente só significa que um botão em
+/// qualquer tela tem a mesma forma, o mesmo respiro e o mesmo texto
+/// centralizado — e que dá para medir o botão antes de desenhá-lo.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EstiloBotao {
+    /// Ação principal da página (preenchida, laranja).
+    Primario,
+    /// Ação secundária (contorno).
+    Neutro,
+    /// Ação discreta (sem fundo).
+    Fantasma,
+    /// Ação destrutiva (vermelha).
+    Perigo,
+    /// Botão só de ícone (quadrado, sem texto).
+    Icone,
+}
+
+/// As medidas de um botão.
+struct Medidas {
+    /// Tamanho da fonte do rótulo.
+    fonte: f32,
+    /// Respiro horizontal (de cada lado).
+    respiro_x: f32,
+    /// Respiro vertical (de cada lado).
+    respiro_y: f32,
+    /// Altura mínima do botão.
+    altura: f32,
+    /// Largura fixa (só nos botões de ícone).
+    largura_fixa: Option<f32>,
+}
+
+fn medidas(estilo: EstiloBotao) -> Medidas {
+    match estilo {
+        // O `PrimaryButton` do Sentinel: Padding 28,11 e CornerRadius 10.
+        EstiloBotao::Primario => Medidas {
+            fonte: 15.0,
+            respiro_x: 28.0,
+            respiro_y: 11.0,
+            altura: 44.0,
+            largura_fixa: None,
+        },
+        EstiloBotao::Neutro => Medidas {
+            fonte: 13.0,
+            respiro_x: 14.0,
+            respiro_y: 9.0,
+            altura: 34.0,
+            largura_fixa: None,
+        },
+        EstiloBotao::Fantasma => Medidas {
+            fonte: 13.0,
+            respiro_x: 10.0,
+            respiro_y: 7.0,
+            altura: 30.0,
+            largura_fixa: None,
+        },
+        EstiloBotao::Perigo => Medidas {
+            fonte: 15.0,
+            respiro_x: 28.0,
+            respiro_y: 11.0,
+            altura: 44.0,
+            largura_fixa: None,
+        },
+        EstiloBotao::Icone => Medidas {
+            fonte: 16.0,
+            respiro_x: 0.0,
+            respiro_y: 0.0,
+            altura: 26.0,
+            largura_fixa: Some(26.0),
+        },
+    }
+}
+
+/// A largura de um botão, **medida**.
+///
+/// O egui não sabe a largura de um texto antes de desenhá-lo, e é por isso
+/// que alinhar um grupo de botões à direita é delicado: o grupo é medido
+/// antes (com a mesma fonte com que o texto vai ser desenhado) e só depois
+/// é desenhado.
+pub fn largura_botao(ui: &Ui, texto: &str, estilo: EstiloBotao) -> f32 {
+    let m = medidas(estilo);
+    if let Some(l) = m.largura_fixa {
+        return l;
+    }
+    let galeria = ui.painter().layout_no_wrap(
+        texto.to_string(),
+        FontId::proportional(m.fonte),
+        Tema::TEXTO,
+    );
+    galeria.rect.width() + 2.0 * m.respiro_x
+}
+
+/// Desenha um botão e devolve a resposta dele (clique, hover, dica).
+///
+/// O botão é desenhado à mão (como o chip e o interruptor) por dois motivos:
+/// o texto fica **sempre** centralizado no retângulo, e o tamanho segue o
+/// Sentinel (`Padding 28,11` no botão principal, canto de 10 px).
+pub fn botao(ui: &mut Ui, texto: &str, estilo: EstiloBotao) -> Response {
+    let m = medidas(estilo);
+    let galeria = ui.painter().layout_no_wrap(
+        texto.to_string(),
+        FontId::proportional(m.fonte),
+        Tema::TEXTO,
+    );
+    let largura = m
+        .largura_fixa
+        .unwrap_or(galeria.rect.width() + 2.0 * m.respiro_x);
+    let altura = m.altura.max(galeria.rect.height() + 2.0 * m.respiro_y);
+    let (ret, resposta) = ui.allocate_exact_size(Vec2::new(largura, altura), Sense::click());
+    pintar_botao(ui, ret, texto, estilo, resposta.hovered());
+    resposta
+}
+
+/// Pinta um botão no retângulo dado (usado por `botao`).
+fn pintar_botao(ui: &mut Ui, ret: egui::Rect, texto: &str, estilo: EstiloBotao, hover: bool) {
+    let m = medidas(estilo);
+    let (fundo, fundo_hover, borda, borda_hover, cor_texto, cor_texto_hover) = match estilo {
+        EstiloBotao::Primario => (
+            Tema::ACCENT_FORTE,
+            Tema::ACCENT_CLARO,
+            None,
+            None,
+            Color32::WHITE,
+            Color32::WHITE,
+        ),
+        EstiloBotao::Neutro => (
+            Tema::PAINEL_ALTO,
+            Tema::PAINEL_ALTO,
+            Some(Tema::BORDA),
+            Some(Tema::BORDA_FORTE),
+            Tema::TEXTO,
+            Tema::TEXTO,
+        ),
+        EstiloBotao::Fantasma => (
+            Color32::TRANSPARENT,
+            Tema::PAINEL_ALTO,
+            None,
+            None,
+            Tema::TEXTO_FRACO,
+            Tema::TEXTO,
+        ),
+        EstiloBotao::Perigo => (
+            Tema::VERMELHO_FORTE,
+            Tema::VERMELHO_CLARO,
+            None,
+            None,
+            Color32::WHITE,
+            Color32::WHITE,
+        ),
+        EstiloBotao::Icone => (
+            Color32::TRANSPARENT,
+            Tema::VERMELHO.gamma_multiply(0.18),
+            None,
+            None,
+            Tema::TEXTO_FRACO,
+            Tema::VERMELHO,
+        ),
+    };
+    let canto = raio(raio::CONTROLE);
+    if hover {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        ui.painter().rect_filled(ret, canto, fundo_hover);
+    } else if fundo != Color32::TRANSPARENT {
+        ui.painter().rect_filled(ret, canto, fundo);
+    }
+    if let Some(b) = borda {
+        let cor = if hover { borda_hover.unwrap_or(b) } else { b };
+        ui.painter().rect_stroke(
+            ret,
+            canto,
+            Stroke::new(1.0, cor),
+            egui::StrokeKind::Middle,
+        );
+    }
+    ui.painter().text(
+        ret.center(),
+        Align2::CENTER_CENTER,
+        texto,
+        FontId::proportional(m.fonte),
+        if hover { cor_texto_hover } else { cor_texto },
+    );
+}
+
+/// Botão principal (laranja, preenchido).
+pub fn botao_primario(ui: &mut Ui, texto: &str) -> Response {
+    botao(ui, texto, EstiloBotao::Primario)
+}
+
+/// Botão neutro (contorno).
+pub fn botao_neutro(ui: &mut Ui, texto: &str) -> Response {
+    botao(ui, texto, EstiloBotao::Neutro)
+}
+
+/// Botão fantasma (sem fundo, só o texto).
+pub fn botao_fantasma(ui: &mut Ui, texto: &str) -> Response {
+    botao(ui, texto, EstiloBotao::Fantasma)
+}
+
+/// Botão de perigo (usado para "Parar").
+pub fn botao_perigo(ui: &mut Ui, texto: &str) -> Response {
+    botao(ui, texto, EstiloBotao::Perigo)
+}
+
+/// Uma ação (botão) de um grupo de ações.
+#[derive(Clone)]
+pub struct Acao {
+    /// O rótulo do botão.
+    pub texto: String,
+    /// O visual do botão.
+    pub estilo: EstiloBotao,
+    /// A dica que aparece quando o mouse passa por cima.
+    pub dica: Option<String>,
+}
+
+impl Acao {
+    /// Cria uma ação.
+    pub fn nova(texto: impl Into<String>, estilo: EstiloBotao) -> Self {
+        Self {
+            texto: texto.into(),
+            estilo,
+            dica: None,
+        }
+    }
+
+    /// Junta uma dica à ação.
+    pub fn com_dica(mut self, dica: impl Into<String>) -> Self {
+        self.dica = Some(dica.into());
+        self
+    }
+}
+
+/// Desenha um grupo de botões **alinhado à borda direita** da linha.
+///
+/// O egui não sabe a largura de um botão antes de desenhá-lo, e é por isso
+/// que alinhar um grupo à direita com `with_layout` é frágil: o escopo do
+/// `with_layout` ocupa o espaço todo do pai, e o grupo acaba desenhado por
+/// cima do conteúdo que vem antes (era o que acontecia com os botões do
+/// cartão do despertador).
+///
+/// Aqui o grupo é **medido antes** — com a mesma fonte com que o texto vai
+/// ser desenhado — e o espaço que sobra é reservado com `add_space`. O
+/// grupo cai certinho na borda direita e nunca invade o conteúdo anterior.
+///
+/// Devolve, para cada ação, se ela foi clicada.
+pub fn acoes_a_direita(ui: &mut Ui, acoes: &[Acao]) -> Vec<bool> {
+    if acoes.is_empty() {
+        return Vec::new();
+    }
+    let larguras: Vec<f32> = acoes
+        .iter()
+        .map(|a| largura_botao(ui, &a.texto, a.estilo))
+        .collect();
+    let espacamento = ui.spacing().item_spacing.x;
+    let total: f32 = larguras.iter().sum::<f32>() + espacamento * (acoes.len() - 1) as f32;
+    let disponivel = ui.available_width();
+
+    if total > disponivel {
+        // Não cabe em uma linha: os botões vão para a esquerda e, se ainda
+        // assim não couberem, o egui os quebra em mais linhas. Melhor uma
+        // linha quebrada do que um botão por cima do outro.
+        let mut clicados = Vec::with_capacity(acoes.len());
+        ui.horizontal_wrapped(|ui| {
+            for a in acoes {
+                clicados.push(desenhar_acao(ui, a));
+            }
+        });
+        return clicados;
+    }
+
+    // O espaço que sobra entre o conteúdo anterior e o grupo.
+    ui.add_space(disponivel - total);
+    let mut clicados = Vec::with_capacity(acoes.len());
+    for a in acoes {
+        clicados.push(desenhar_acao(ui, a));
+    }
+    clicados
+}
+
+/// Desenha uma ação e devolve se ela foi clicada.
+fn desenhar_acao(ui: &mut Ui, acao: &Acao) -> bool {
+    let mut resposta = botao(ui, &acao.texto, acao.estilo);
+    if let Some(dica) = &acao.dica {
+        resposta = resposta.on_hover_text(dica.clone());
+    }
+    resposta.clicked()
+}
+
+/// Reserva o espaço que falta para o próximo item encostar na borda direita.
+///
+/// É o botão irmão de [`acoes_a_direita`], para quando o item da direita
+/// tem largura conhecida (o interruptor, por exemplo).
+pub fn empurra_para_direita(ui: &mut Ui, largura: f32) {
+    let disponivel = ui.available_width();
+    if disponivel > largura {
+        ui.add_space(disponivel - largura);
+    }
+}
+
+// -------------------------------------------------------------------- cartões
+
 /// Cartão com fundo, borda e cantos arredondados.
 ///
 /// O respiro interno é o `Padding 20` do Tranal Sentinel: é ele que tira o
@@ -189,98 +515,30 @@ pub fn cartao<R>(ui: &mut Ui, adicionar: impl FnOnce(&mut Ui) -> R) -> R {
         .inner
 }
 
-/// Botão principal (laranja).
-pub fn botao_primario(ui: &mut Ui, texto: &str) -> Response {
-    ui.add(
-        egui::Button::new(
-            egui::RichText::new(texto)
-                .color(Color32::WHITE)
-                .size(15.0)
-                .strong(),
-        )
-        .fill(Tema::ACCENT_FORTE)
-        .corner_radius(raio(raio::CONTROLE))
-        .stroke(Stroke::NONE)
-        .min_size(Vec2::new(0.0, 40.0)),
-    )
-}
-
-/// Botão principal **grande**: o da ação principal da página.
-///
-/// É o `PrimaryButton` do Tranal Sentinel (preenchido, canto 10, padding
-/// largo). Ele fica na linha do título da página, longe de qualquer borda.
-pub fn botao_primario_grande(ui: &mut Ui, texto: &str) -> Response {
-    ui.add(
-        egui::Button::new(
-            egui::RichText::new(texto)
-                .color(Color32::WHITE)
-                .size(15.0)
-                .strong(),
-        )
-        .fill(Tema::ACCENT_FORTE)
-        .corner_radius(raio(raio::CONTROLE))
-        .stroke(Stroke::NONE)
-        .min_size(Vec2::new(0.0, 44.0)),
-    )
-}
-
-/// Botão neutro (contorno).
-pub fn botao_neutro(ui: &mut Ui, texto: &str) -> Response {
-    ui.add(
-        egui::Button::new(egui::RichText::new(texto).color(Tema::TEXTO).size(13.0))
-            .fill(Tema::PAINEL_ALTO)
-            .corner_radius(raio(raio::CONTROLE))
-            .stroke(Stroke::new(1.0, Tema::BORDA))
-            .min_size(Vec2::new(0.0, 34.0)),
-    )
-}
-
-/// Botão fantasma (sem fundo, só o texto).
-pub fn botao_fantasma(ui: &mut Ui, texto: &str) -> Response {
-    ui.add(
-        egui::Button::new(egui::RichText::new(texto).color(Tema::TEXTO_FRACO).size(13.0))
-            .fill(Color32::TRANSPARENT)
-            .corner_radius(raio(raio::CONTROLE))
-            .stroke(Stroke::NONE)
-            .min_size(Vec2::new(0.0, 30.0)),
-    )
-}
-
-/// Botão de perigo (usado para "Parar").
-pub fn botao_perigo(ui: &mut Ui, texto: &str) -> Response {
-    ui.add(
-        egui::Button::new(
-            egui::RichText::new(texto)
-                .color(Color32::WHITE)
-                .size(15.0)
-                .strong(),
-        )
-        .fill(Tema::VERMELHO_FORTE)
-        .corner_radius(raio(raio::CONTROLE))
-        .stroke(Stroke::NONE)
-        .min_size(Vec2::new(0.0, 44.0)),
-    )
-}
-
 /// Etiqueta arredondada (ex.: "Todo dia").
-pub fn chip(ui: &mut Ui, texto: &str, cor: Color32) {
+///
+/// É o `Chip` do Sentinel: fundo transparente, Padding 13,5, canto de 14 px
+/// e borda de 1 px. Aqui a borda e o texto usam a cor da informação (repete,
+/// som, 100%, desafio), e o texto é a cor cheia — sobre o fundo do cartão
+/// ela passa de 6:1, como manda a WCAG.
+///
+/// Devolve o retângulo desenhado (para os testes medirem o respiro).
+pub fn chip(ui: &mut Ui, texto: &str, cor: Color32) -> egui::Rect {
     let galeria = ui.painter().layout_no_wrap(
         texto.to_string(),
         FontId::proportional(12.0),
         cor,
     );
-    let largura = galeria.rect.width() + 18.0;
-    let altura = galeria.rect.height() + 8.0;
+    let largura = galeria.rect.width() + 26.0;
+    let altura = galeria.rect.height() + 10.0;
     let (ret, resposta) = ui.allocate_exact_size(Vec2::new(largura, altura), Sense::hover());
     if resposta.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
     }
-    ui.painter()
-        .rect_filled(ret, raio(raio::PILULA), cor.gamma_multiply(0.16));
     ui.painter().rect_stroke(
         ret,
         raio(raio::PILULA),
-        Stroke::new(1.0, cor.gamma_multiply(0.45)),
+        Stroke::new(1.0, cor.gamma_multiply(0.55)),
         egui::StrokeKind::Middle,
     );
     ui.painter().text(
@@ -290,6 +548,7 @@ pub fn chip(ui: &mut Ui, texto: &str, cor: Color32) {
         FontId::proportional(12.0),
         cor,
     );
+    ret
 }
 
 /// Interruptor liga/desliga desenhado à mão.
@@ -357,6 +616,8 @@ pub fn linha_separadora(ui: &mut Ui) {
     ui.add_space(espaco::XS);
 }
 
+// ------------------------------------------------------------------ seletores
+
 /// Uma opção de um seletor segmentado.
 pub struct Segmento<'a> {
     pub texto: &'a str,
@@ -384,7 +645,11 @@ pub fn seletor_segmentado(ui: &mut Ui, segmentos: &[Segmento], selecionado: usiz
         return None;
     }
     let altura = 36.0;
-    let largura = ui.available_width() / total as f32;
+    // O espaco entre os segmentos conta na largura: sem descontar ele, os
+    // ultimos segmentos passam da borda e esticam o painel que os contem.
+    let espacamento = 4.0;
+    let largura =
+        (ui.available_width() - espacamento * (total as f32 - 1.0)) / total as f32;
     let mut escolhido = None;
 
     ui.horizontal(|ui| {
@@ -507,7 +772,11 @@ pub fn seletor_multiplo(ui: &mut Ui, opcoes: &[&str], marcados: &[bool]) -> Opti
         return None;
     }
     let altura = 34.0;
-    let largura = ui.available_width() / total as f32;
+    // O espaco entre os botoes conta na largura (mesmo cuidado do seletor
+    // segmentado).
+    let espacamento = 4.0;
+    let largura =
+        (ui.available_width() - espacamento * (total as f32 - 1.0)) / total as f32;
     let mut escolhido = None;
 
     ui.horizontal(|ui| {
@@ -547,9 +816,6 @@ pub fn seletor_multiplo(ui: &mut Ui, opcoes: &[&str], marcados: &[bool]) -> Opti
     escolhido
 }
 
-
-
-
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -587,6 +853,38 @@ mod testes {
             .cursor
             .char_range()
             .map(|r| (r.primary.index.0, r.secondary.index.0))
+    }
+
+    /// Roda um quadro e devolve as formas desenhadas (para medir).
+    fn medir(mut conteudo: impl FnMut(&mut Ui)) -> Vec<egui::Shape> {
+        let ctx = egui::Context::default();
+        let saida = ctx.run_ui(Default::default(), |ui| {
+            conteudo(ui);
+        });
+        let formas: Vec<egui::Shape> = saida.shapes.iter().map(|c| c.shape.clone()).collect();
+        saida.drop_without_applying_deltas();
+        formas
+    }
+
+    /// O retângulo preenchido com a cor dada.
+    fn retangulo(formas: &[egui::Shape], cor: Color32) -> Option<egui::Rect> {
+        formas.iter().find_map(|f| match f {
+            egui::Shape::Rect(r) if r.fill == cor => Some(r.rect),
+            _ => None,
+        })
+    }
+
+    /// O retângulo do texto desenhado (na tela).
+    ///
+    /// O `galley.rect` é o retângulo **local** do texto; na tela ele começa
+    /// em `pos`.
+    fn texto_desenhado(formas: &[egui::Shape]) -> Option<egui::Rect> {
+        formas.iter().find_map(|f| match f {
+            egui::Shape::Text(t) => {
+                Some(egui::Rect::from_min_size(t.pos, t.galley.rect.size()))
+            }
+            _ => None,
+        })
     }
 
     #[test]
@@ -640,5 +938,84 @@ mod testes {
         ctx.memory_mut(|m| m.request_focus(id));
         selecionar_todo_ao_ganhar_foco(ctx, id, &texto, true);
         assert_eq!(selecao(ctx, id), None);
+    }
+
+    /// O texto do botão tem que ficar **centralizado** dentro dele.
+    ///
+    /// Era exatamente o defeito que o dono apontou: o texto do "+ Novo
+    /// despertador" não batia com o meio do botão.
+    #[test]
+    fn o_texto_do_botao_fica_centralizado() {
+        let formas = medir(|ui| {
+            botao(ui, "+  Novo despertador", EstiloBotao::Primario);
+        });
+        let botao = retangulo(&formas, Tema::ACCENT_FORTE).expect("o botão foi desenhado");
+        let texto = texto_desenhado(&formas).expect("o texto foi desenhado");
+        assert!(
+            (texto.center().x - botao.center().x).abs() < 1.0,
+            "o texto não está centralizado no botão: texto {:?}, botão {:?}",
+            texto,
+            botao
+        );
+        assert!(
+            (texto.center().y - botao.center().y).abs() < 1.0,
+            "o texto não está centralizado na altura do botão"
+        );
+    }
+
+    /// O grupo de botões tem que encostar na borda direita da linha, sem
+    /// invadir o conteúdo que vem antes.
+    ///
+    /// Este é o defeito do cartão do despertador: os botões eram desenhados
+    /// por cima das etiquetas.
+    #[test]
+    fn o_grupo_de_botoes_para_na_direita_sem_invadir_o_conteudo() {
+        let mut borda_da_linha = 0.0;
+        let mut borda_da_etiqueta = 0.0;
+        let formas = medir(|ui| {
+            borda_da_linha = ui.max_rect().right();
+            ui.horizontal(|ui| {
+                // O conteúdo da esquerda (as etiquetas do despertador).
+                borda_da_etiqueta = chip(ui, "Uma vez", Tema::AZUL).right();
+                // O grupo de ações, à direita.
+                acoes_a_direita(
+                    ui,
+                    &[
+                        Acao::nova("Repetir amanhã", EstiloBotao::Neutro),
+                        Acao::nova("Editar", EstiloBotao::Neutro),
+                    ],
+                );
+            });
+        });
+        // Os dois botões do grupo (o preenchimento neutro).
+        let acoes: Vec<egui::Rect> = formas
+            .iter()
+            .filter_map(|f| match f {
+                egui::Shape::Rect(r) if r.fill == Tema::PAINEL_ALTO => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        assert!(acoes.len() >= 2, "os dois botões do grupo foram desenhados");
+        let grupo_esquerda = acoes
+            .iter()
+            .map(|r| r.left())
+            .fold(f32::INFINITY, |a, b| a.min(b));
+        let grupo_direita = acoes
+            .iter()
+            .map(|r| r.right())
+            .fold(f32::NEG_INFINITY, |a, b| a.max(b));
+
+        assert!(
+            grupo_esquerda > borda_da_etiqueta,
+            "o grupo de botões invadiu as etiquetas: grupo em {}, etiqueta em {}",
+            grupo_esquerda,
+            borda_da_etiqueta
+        );
+        assert!(
+            (grupo_direita - borda_da_linha).abs() < 1.0,
+            "o grupo de botões não encostou na borda direita: grupo em {}, linha em {}",
+            grupo_direita,
+            borda_da_linha
+        );
     }
 }
