@@ -14,7 +14,7 @@ use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
     eConsole, eRender, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE,
-    DEVICE_STATEMASK_ALL,
+    DEVICE_STATE_ACTIVE, DEVICE_STATEMASK_ALL,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
@@ -57,12 +57,20 @@ struct Endpoint {
 }
 
 fn enumerar() -> Result<Vec<Endpoint>, String> {
+    enumerar_com_mascara(DEVICE_STATEMASK_ALL)
+}
+
+fn enumerar_ativos() -> Result<Vec<Endpoint>, String> {
+    enumerar_com_mascara(DEVICE_STATE_ACTIVE.0)
+}
+
+fn enumerar_com_mascara(mascara: u32) -> Result<Vec<Endpoint>, String> {
     garantir_com();
     unsafe {
         let enumerador: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
         let colecao = enumerador
-            .EnumAudioEndpoints(eRender, DEVICE_STATE(DEVICE_STATEMASK_ALL))
+            .EnumAudioEndpoints(eRender, DEVICE_STATE(mascara))
             .map_err(|e| e.to_string())?;
         let total = colecao.GetCount().map_err(|e| e.to_string())?;
 
@@ -126,7 +134,7 @@ pub struct SaidaComVolume {
 /// eram 12 enumerações COM, e o editor demorava uma eternidade para abrir.
 /// Aqui as saídas são enumeradas uma vez só e os volumes vêm na mesma volta.
 pub fn saidas_com_volume() -> Vec<SaidaComVolume> {
-    let Ok(saidas) = enumerar() else {
+    let Ok(saidas) = enumerar_ativos() else {
         return Vec::new();
     };
     saidas

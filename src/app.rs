@@ -677,7 +677,7 @@ impl TranalApp {
             erro_hora: None,
             duracao_som: None,
             volumes_saidas,
-            biblioteca: tones::biblioteca(),
+            biblioteca: self.biblioteca.clone(),
         });
     }
 
