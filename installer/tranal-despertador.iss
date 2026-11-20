@@ -146,7 +146,8 @@ procedure EncerrarApp;
 var
   Codigo: Integer;
 begin
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM {#AppExeName}', '',
+  { Sem /T: no auto-update o proprio Setup e filho do app e morreria junto. }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#AppExeName}', '',
     SW_HIDE, ewWaitUntilTerminated, Codigo);
   Sleep(500);
 end;

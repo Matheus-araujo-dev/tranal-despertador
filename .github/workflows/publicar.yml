@@ -145,16 +145,14 @@ jobs:
 
       # A release é a "Latest" do GitHub. A tag é criada pelo gh no commit
       # deste push (tag criada com o GITHUB_TOKEN não dispara outro workflow).
-      #
-      # O tranal-despertador.exe solto vai junto só pela transição: o
-      # atualizador antigo (v0.3/v0.4) procura esse nome e troca o exe no
-      # lugar; o app novo, rodando da pasta antiga, roda o Setup e migra
-      # para o Tranal Group. O atualizador novo só olha para o Setup.
+      # Só o Setup: o atualizador antigo (v0.3/v0.4) trocava o exe cru e
+      # nunca conseguiu (o exe em uso fica travado, "os error 32"); uma
+      # instalação v0.4.0 passa para o Setup rodando-o uma vez à mão.
       - name: Release da versão
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "v${{ steps.versao.outputs.numero }}"
-          gh release create $tag dist\Tranal-Despertador-Setup.exe target\release\tranal-despertador.exe `
+          gh release create $tag dist\Tranal-Despertador-Setup.exe `
             --target $env:GITHUB_SHA --latest --title "Tranal Despertador $tag" --generate-notes

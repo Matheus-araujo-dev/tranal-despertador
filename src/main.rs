@@ -51,9 +51,12 @@ fn main() -> eframe::Result<()> {
     // valor legado do registro: vira o ajuste do app, que passa a mandar.
     // Só grava se o arquivo de dados não existe ou é legível: um arquivo
     // quebrado volta como lista vazia, e gravar por cima apagaria os alarmes.
-    let dados_legiveis = std::fs::read_to_string(storage::caminho_dados())
-        .map(|t| serde_json::from_str::<model::BancoDeDados>(&t).is_ok())
-        .unwrap_or(true);
+    // Qualquer erro de leitura que não seja "não existe" (arquivo travado,
+    // permissão) conta como ilegível.
+    let dados_legiveis = match std::fs::read_to_string(storage::caminho_dados()) {
+        Ok(t) => serde_json::from_str::<model::BancoDeDados>(&t).is_ok(),
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+    };
     if device_volume::migrar_inicio_legado() && !ajustes.iniciar_com_o_windows {
         ajustes.iniciar_com_o_windows = true;
         if !dados_legiveis {

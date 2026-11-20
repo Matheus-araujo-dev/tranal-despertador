@@ -69,9 +69,11 @@ Desinstalar: pelo Windows (Configurações → Aplicativos) ou
 `.\scripts\instalar.ps1 -Desinstalar`. Os despertadores e os sons ficam.
 
 **Instalação antiga** (a do `scripts\instalar.ps1` antigo, em
-`%LOCALAPPDATA%\Programs\Tranal Despertador`): o atualizador dela baixa a
-versão nova, que roda o Setup sozinha; o Setup apaga a pasta antiga,
-sobrescreve os atalhos e passa o início automático para o exe novo.
+`%LOCALAPPDATA%\Programs\Tranal Despertador`, v0.4.0 ou anterior): o
+atualizador dela não consegue se trocar sozinho (o exe em uso fica travado).
+Rode o `Tranal-Despertador-Setup.exe` uma vez à mão: ele fecha o app antigo,
+apaga a pasta antiga, sobrescreve os atalhos e passa o início automático para
+o exe novo. Daí em diante as atualizações são automáticas.
 
 ## Publicação e atualização automática
 
