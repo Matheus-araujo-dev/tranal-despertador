@@ -559,7 +559,7 @@ impl TranalApp {
             // apontou na captura.
             ui.add_space(ui::espaco::M);
             ui.horizontal_wrapped(|ui| {
-                ui::chip(ui, &alarme.repeat.describe(), Tema::AZUL);
+                ui::chip(ui, &alarme.repeat.describe(), Tema::AMBAR);
                 ui::chip(ui, &nome_som(&alarme.sound), Tema::TEXTO_FRACO);
                 if alarme.force_device_volume {
                     ui::chip(ui, "100% no aparelho", Tema::VERDE);
@@ -1935,10 +1935,13 @@ fn disparar(
 
         // Espera 5 segundos, ou ate o dono dispensar.
         let g = comp.travar();
-        let (g, _resultado) = comp
+        let (g, _resultado) = match comp
             .condvar
             .wait_timeout(g, Duration::from_secs(5))
-            .unwrap();
+        {
+            Ok(r) => r,
+            Err(envenenado) => envenenado.into_inner(),
+        };
         drop(g);
         if comp.paradas.load(std::sync::atomic::Ordering::SeqCst) != marcas {
             // O dono dispensou: para de tentar.

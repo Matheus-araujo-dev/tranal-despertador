@@ -271,7 +271,7 @@ pub fn novo_id() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("al{:x}", nanos & 0xffff_ffff)
+    format!("al{:x}", nanos as u64)
 }
 
 #[cfg(test)]

@@ -65,8 +65,8 @@ impl Tema {
     pub const VERMELHO_FORTE: Color32 = Color32::from_rgb(198, 40, 40);
     /// Vermelho do botão de perigo no hover (5,0:1 com texto branco).
     pub const VERMELHO_CLARO: Color32 = Color32::from_rgb(206, 54, 54);
-    /// Azul de informação (7,0:1 no fundo).
-    pub const AZUL: Color32 = Color32::from_rgb(88, 156, 255);
+    /// Âmbar de informação (7,2:1 no fundo).
+    pub const AMBAR: Color32 = Color32::from_rgb(217, 171, 72);
 }
 
 /// Luminância relativa de uma cor, como a WCAG 2.1 define.
@@ -1008,7 +1008,7 @@ mod testes {
             borda_da_linha = ui.max_rect().right();
             ui.horizontal(|ui| {
                 // O conteúdo da esquerda (as etiquetas do despertador).
-                borda_da_etiqueta = chip(ui, "Uma vez", Tema::AZUL).right();
+                borda_da_etiqueta = chip(ui, "Uma vez", Tema::AMBAR).right();
                 // O grupo de ações, à direita.
                 acoes_a_direita(
                     ui,
@@ -1073,7 +1073,7 @@ mod testes {
             ("laranja no cartão", Tema::ACCENT, Tema::PAINEL),
             ("verde no cartão", Tema::VERDE, Tema::PAINEL),
             ("vermelho no cartão", Tema::VERMELHO, Tema::PAINEL),
-            ("azul no cartão", Tema::AZUL, Tema::PAINEL),
+            ("âmbar no cartão", Tema::AMBAR, Tema::PAINEL),
             ("branco no botão primário", Color32::WHITE, Tema::ACCENT_FORTE),
             (
                 "branco no hover do botão primário",
@@ -1100,7 +1100,7 @@ mod testes {
         // A borda de 1 px da etiqueta (a "informação" do chip) tem que
         // aparecer contra o cartão: 3:1 (WCAG 1.4.11).
         let bordas: [(&str, Color32); 5] = [
-            ("borda da etiqueta de repetição", Tema::AZUL),
+            ("borda da etiqueta de repetição", Tema::AMBAR),
             ("borda da etiqueta de som", Tema::TEXTO_FRACO),
             ("borda da etiqueta de volume", Tema::VERDE),
             ("borda da etiqueta de desafio", Tema::ACCENT),
