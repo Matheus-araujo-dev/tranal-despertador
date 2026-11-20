@@ -8,6 +8,7 @@
 
 mod app;
 mod arquivos;
+mod atualizador;
 mod audio;
 mod cli;
 mod device_volume;

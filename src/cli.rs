@@ -12,6 +12,9 @@ use crate::model::{Preset, SoundChoice};
 
 /// Executa os modos de linha de comando. Devolve `true` se algum modo foi pedido.
 pub fn executar(args: &[String]) -> bool {
+    if args.iter().any(|a| a == "--atualizar") {
+        return crate::atualizador::executar_troca(args);
+    }
     if args.iter().any(|a| a == "--forcar-volume") {
         return forcar_volume(args);
     }

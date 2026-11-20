@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Datelike, Local, Timelike};
 use eframe::egui;
 
+use crate::atualizador;
 use crate::audio::{self, Saida};
 use crate::arquivos;
 use crate::estado;
@@ -138,6 +139,22 @@ pub struct TranalApp {
     /// O `TrayIcon` tem que ficar guardado: se for solto, o Windows remove o
     /// ícone da área de notificação.
     bandeja: Option<tray_icon::TrayIcon>,
+
+    // ---- atualização automática ----
+    /// Receptor do resultado da checagem (a thread envia uma vez só).
+    rx_atualizacao: Option<Receiver<(atualizador::Versao, atualizador::ReleaseGitHub)>>,
+    /// Release encontrada (quando há versão nova).
+    release_nova: Option<atualizador::ReleaseGitHub>,
+    /// Versão nova disponível.
+    versao_nova: Option<atualizador::Versao>,
+    /// O banner de atualização foi dispensado pelo dono.
+    atualizacao_dispensada: bool,
+    /// Download em andamento.
+    download: Option<atualizador::Progresso>,
+    /// Mensagem do download (progresso ou erro).
+    download_mensagem: Option<String>,
+    /// A troca do executável já foi agendada.
+    troca_agendada: bool,
 }
 
 impl TranalApp {
@@ -157,7 +174,7 @@ impl TranalApp {
         let comp = Arc::new(estado::Compartilhado::novo(alarms.clone(), settings));
         let agendador = iniciar_agendador(cc.egui_ctx.clone(), comp.clone());
 
-        Self {
+        let mut app = Self {
             comp,
             saidas,
             editor: None,
@@ -185,7 +202,30 @@ impl TranalApp {
             alarmes_cache: alarms,
             proximo_geracao: 0,
             proximo_calculado_em: Instant::now(),
-        }
+            rx_atualizacao: None,
+            release_nova: None,
+            versao_nova: None,
+            atualizacao_dispensada: false,
+            download: None,
+            download_mensagem: None,
+            troca_agendada: false,
+        };
+
+        // Checagem de atualização em segundo plano (uma por sessão).
+        let ctx_att = cc.egui_ctx.clone();
+        let (tx, rx) = mpsc::channel();
+        app.rx_atualizacao = Some(rx);
+        std::thread::spawn(move || {
+            let resultado = atualizador::checar();
+            if resultado.ha_versao_nova
+                && let (Some(v), Some(rel)) = (resultado.versao_nova, resultado.release)
+            {
+                let _ = tx.send((v, rel));
+            }
+            ctx_att.request_repaint();
+        });
+
+        app
     }
 
     /// Os despertadores do dono (o que a lista mostra).
@@ -207,6 +247,122 @@ impl TranalApp {
     /// Avisa o agendador que o estado mudou: ele recalcula a proxima hora.
     fn recarregar_agendador(&self) {
         self.comp.notificar();
+    }
+
+    /// Processa o resultado da checagem de atualização (chamado a cada quadro).
+    fn processar_atualizacao(&mut self) {
+        // Checa se a thread de verificação mandou o resultado.
+        if let Some(rx) = &self.rx_atualizacao
+            && let Ok((versao, release)) = rx.try_recv()
+        {
+            self.versao_nova = Some(versao);
+            self.release_nova = Some(release);
+            self.rx_atualizacao = None;
+        }
+
+        // Acompanha o progresso do download.
+        let mut download_concluido = false;
+        let mut download_erro: Option<String> = None;
+
+        if let Some(ref prog) = self.download {
+            let baixados = *prog.baixados.lock().unwrap();
+            let total = prog.total;
+            if total > 0 {
+                self.download_mensagem = Some(format!(
+                    "{} de {}",
+                    atualizador::formatar_tamanho(baixados),
+                    atualizador::formatar_tamanho(total),
+                ));
+            }
+            if prog.concluido.load(std::sync::atomic::Ordering::Acquire) {
+                download_concluido = true;
+                download_erro = prog.erro.lock().unwrap().take();
+            }
+        }
+
+        if download_concluido {
+            self.download = None;
+            if let Some(erro) = download_erro {
+                self.download_mensagem = Some(format!("Falha: {erro}"));
+            } else if !self.troca_agendada {
+                let caminho = atualizador::caminho_arquivo_novo();
+                match atualizador::iniciar_troca(&caminho) {
+                    Ok(()) => {
+                        self.troca_agendada = true;
+                        self.download_mensagem = Some(
+                            "Pronto. Feche o TRANAL DESPERTADOR para concluir a atualização."
+                                .into(),
+                        );
+                        atualizador::registrar_no_log(
+                            "Troca agendada. Esperando o app fechar.",
+                        );
+                    }
+                    Err(e) => {
+                        self.download_mensagem =
+                            Some(format!("Não consegui agendar a troca: {e}"));
+                        atualizador::registrar_no_log(&format!(
+                            "Falha ao agendar troca: {e}"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Desenha o banner de atualização disponível (entre o topo e o conteúdo).
+    fn banner_atualizacao(&mut self, ui: &mut egui::Ui) {
+        if self.atualizacao_dispensada || self.release_nova.is_none() {
+            return;
+        }
+
+        let versao = self.versao_nova.as_ref().unwrap();
+        let release = self.release_nova.as_ref().unwrap();
+        let tamanho = atualizador::formatar_tamanho(release.tamanho);
+
+        egui::Frame::new()
+            .fill(Tema::PAINEL)
+            .stroke(egui::Stroke::new(1.0, Tema::ACCENT))
+            .corner_radius(ui::raio(ui::raio::CARTAO))
+            .inner_margin(egui::Margin::symmetric(16, 12))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Versão {} disponível ({tamanho})",
+                            versao.completa()
+                        ))
+                        .color(Tema::TEXTO)
+                        .size(13.0),
+                    );
+
+                    ui::empurra_para_direita(ui, 180.0);
+
+                    if self.troca_agendada {
+                        ui.label(
+                            egui::RichText::new("Feche o app para concluir")
+                                .color(Tema::TEXTO_FRACO)
+                                .size(12.0),
+                        );
+                    } else if self.download.is_some() {
+                        if let Some(msg) = &self.download_mensagem {
+                            ui.label(
+                                egui::RichText::new(msg)
+                                    .color(Tema::TEXTO_FRACO)
+                                    .size(12.0),
+                            );
+                        }
+                    } else {
+                        if ui::botao_primario(ui, "Atualizar").clicked() {
+                            self.download =
+                                Some(atualizador::baixar_em_segundo_plano(release));
+                        }
+                        if ui::botao_fantasma(ui, "Depois").clicked() {
+                            self.atualizacao_dispensada = true;
+                        }
+                    }
+                });
+            });
+        ui.add_space(ui::espaco::S);
     }
 
     /// Grava o arquivo de dados (so os despertadores do dono entram nele).
@@ -243,6 +399,7 @@ impl TranalApp {
                         ui::MARGEM_PAGINA_VERTICAL,
                     ))
                     .show(ui, |ui| {
+                        self.banner_atualizacao(ui);
                         self.cabecalho_pagina(ui);
                         ui.add_space(ui::espaco::XL);
                         // A altura do conteudo e calculada ANTES do horizontal:
@@ -1654,6 +1811,10 @@ impl TranalApp {
                             ui,
                             &format!("Saídas de áudio encontradas: {}", saidas.len()),
                         );
+                        ui::ajuda(
+                            ui,
+                            &format!("Versão: {}", atualizador::Versao::do_app()),
+                        );
                     });
 
                 ui.add_space(ui::espaco::M);
@@ -2064,6 +2225,9 @@ impl eframe::App for TranalApp {
         // Atualiza os caches se o estado mudou (uma leitura atômica;
         // só trava o mutex quando os alarmes realmente mudaram).
         self.sincronizar_cache();
+
+        // Processa o resultado da checagem de atualização / download.
+        self.processar_atualizacao();
 
         // O proximo despertador: recalcula só se os alarmes mudaram
         // ou se passou mais de 1 segundo (o schedule depende da hora).
