@@ -33,20 +33,26 @@ use egui::{Align2, Color32, CornerRadius, FontId, Response, Sense, Stroke, Ui, V
 pub struct Tema;
 
 impl Tema {
-    /// Fundo da janela.
-    pub const FUNDO: Color32 = Color32::from_rgb(11, 13, 18);
-    /// Fundo dos cartões e painéis.
-    pub const PAINEL: Color32 = Color32::from_rgb(21, 25, 34);
-    /// Fundo dos controles (campos, botões).
-    pub const PAINEL_ALTO: Color32 = Color32::from_rgb(29, 34, 46);
-    /// Borda discreta.
-    pub const BORDA: Color32 = Color32::from_rgb(42, 49, 64);
-    /// Borda de destaque (campo em foco, botão no hover).
-    pub const BORDA_FORTE: Color32 = Color32::from_rgb(62, 72, 92);
-    /// Texto principal (16,4:1 no fundo).
-    pub const TEXTO: Color32 = Color32::from_rgb(232, 236, 243);
-    /// Texto secundário (6,3:1 no fundo).
-    pub const TEXTO_FRACO: Color32 = Color32::from_rgb(146, 155, 174);
+    /// Fundo da janela (Sentinel Bg #000).
+    pub const FUNDO: Color32 = Color32::from_rgb(0, 0, 0);
+    /// Fundo dos cartões e painéis (Sentinel Card #0E0E0E).
+    pub const PAINEL: Color32 = Color32::from_rgb(14, 14, 14);
+    /// Fundo dos controles (Sentinel Hover #181818).
+    pub const PAINEL_ALTO: Color32 = Color32::from_rgb(24, 24, 24);
+    /// Borda discreta (Sentinel Line #1F1F1F).
+    pub const BORDA: Color32 = Color32::from_rgb(31, 31, 31);
+    /// Borda de destaque (Sentinel LineStrong #3A3A3A).
+    pub const BORDA_FORTE: Color32 = Color32::from_rgb(58, 58, 58);
+    /// Texto principal (19,3:1 no fundo — Sentinel Fg #F5F5F5).
+    pub const TEXTO: Color32 = Color32::from_rgb(245, 245, 245);
+    /// Texto secundário (6,3:1 no fundo — Sentinel Muted #8C8C8C).
+    pub const TEXTO_FRACO: Color32 = Color32::from_rgb(140, 140, 140);
+    /// Preto para texto sobre fundo claro (Sentinel Ink #000).
+    #[allow(dead_code)]
+    pub const TINTA: Color32 = Color32::from_rgb(0, 0, 0);
+    /// Cinza fraco (3,1:1 no cartão — Sentinel Faint, ajustado para WCAG).
+    #[allow(dead_code)]
+    pub const APAGADO: Color32 = Color32::from_rgb(95, 95, 95);
     /// Laranja de destaque: texto, bordas e ícones (7,5:1 no fundo).
     pub const ACCENT: Color32 = Color32::from_rgb(255, 138, 40);
     /// Laranja de preenchimento: fundo de botão com texto branco (5,2:1).
@@ -1062,7 +1068,7 @@ mod testes {
     /// * borda de elemento informativo: **3:1** (WCAG 1.4.11).
     #[test]
     fn a_paleta_passa_na_wcag_aa() {
-        let textos: [(&str, Color32, Color32); 15] = [
+        let textos: [(&str, Color32, Color32); 16] = [
             ("texto principal no fundo", Tema::TEXTO, Tema::FUNDO),
             ("texto principal no cartão", Tema::TEXTO, Tema::PAINEL),
             ("texto principal no controle", Tema::TEXTO, Tema::PAINEL_ALTO),
@@ -1074,6 +1080,7 @@ mod testes {
             ("verde no cartão", Tema::VERDE, Tema::PAINEL),
             ("vermelho no cartão", Tema::VERMELHO, Tema::PAINEL),
             ("âmbar no cartão", Tema::AMBAR, Tema::PAINEL),
+            ("tinta no botão branco", Tema::TINTA, Tema::TEXTO),
             ("branco no botão primário", Color32::WHITE, Tema::ACCENT_FORTE),
             (
                 "branco no hover do botão primário",
@@ -1115,5 +1122,12 @@ mod testes {
                 razao
             );
         }
+
+        let razao = razao_contraste(Tema::APAGADO, Tema::PAINEL);
+        assert!(
+            razao >= 3.0,
+            "apagado no cartão: contraste de {:.2}:1 está abaixo dos 3:1 exigidos pela WCAG 1.4.11",
+            razao
+        );
     }
 }
