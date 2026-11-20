@@ -155,6 +155,8 @@ pub struct TranalApp {
     download_mensagem: Option<String>,
     /// A troca do executável já foi agendada.
     troca_agendada: bool,
+    /// Instante da última checagem de atualização (para repetir a cada 6 h).
+    ultima_checagem: Instant,
 }
 
 impl TranalApp {
@@ -209,21 +211,11 @@ impl TranalApp {
             download: None,
             download_mensagem: None,
             troca_agendada: false,
+            ultima_checagem: Instant::now(),
         };
 
-        // Checagem de atualização em segundo plano (uma por sessão).
-        let ctx_att = cc.egui_ctx.clone();
-        let (tx, rx) = mpsc::channel();
-        app.rx_atualizacao = Some(rx);
-        std::thread::spawn(move || {
-            let resultado = atualizador::checar();
-            if resultado.ha_versao_nova
-                && let (Some(v), Some(rel)) = (resultado.versao_nova, resultado.release)
-            {
-                let _ = tx.send((v, rel));
-            }
-            ctx_att.request_repaint();
-        });
+        // Checagem de atualização em segundo plano.
+        app.iniciar_checagem_atualizacao(&cc.egui_ctx);
 
         app
     }
@@ -249,6 +241,23 @@ impl TranalApp {
         self.comp.notificar();
     }
 
+    /// Lança a thread de checagem de atualização.
+    fn iniciar_checagem_atualizacao(&mut self, ctx: &egui::Context) {
+        let ctx_att = ctx.clone();
+        let (tx, rx) = mpsc::channel();
+        self.rx_atualizacao = Some(rx);
+        self.ultima_checagem = Instant::now();
+        std::thread::spawn(move || {
+            let resultado = atualizador::checar();
+            if resultado.ha_versao_nova
+                && let (Some(v), Some(rel)) = (resultado.versao_nova, resultado.release)
+            {
+                let _ = tx.send((v, rel));
+            }
+            ctx_att.request_repaint();
+        });
+    }
+
     /// Processa o resultado da checagem de atualização (chamado a cada quadro).
     fn processar_atualizacao(&mut self, ctx: &egui::Context) {
         // Checa se a thread de verificação mandou o resultado.
@@ -258,6 +267,16 @@ impl TranalApp {
             self.versao_nova = Some(versao);
             self.release_nova = Some(release);
             self.rx_atualizacao = None;
+        }
+
+        // Re-checa a cada 6 horas se não há atualização pendente.
+        const INTERVALO: Duration = Duration::from_secs(6 * 60 * 60);
+        if self.rx_atualizacao.is_none()
+            && self.release_nova.is_none()
+            && !self.troca_agendada
+            && self.ultima_checagem.elapsed() >= INTERVALO
+        {
+            self.iniciar_checagem_atualizacao(ctx);
         }
 
         // Acompanha o progresso do download.
