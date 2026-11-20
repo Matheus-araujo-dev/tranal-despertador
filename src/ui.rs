@@ -70,8 +70,6 @@ impl Tema {
     pub const VERMELHO_FORTE: Color32 = Color32::from_rgb(198, 40, 40);
     /// Vermelho do botão de perigo no hover (5,0:1 com texto branco).
     pub const VERMELHO_CLARO: Color32 = Color32::from_rgb(206, 54, 54);
-    /// Âmbar de informação (7,2:1 no fundo).
-    pub const AMBAR: Color32 = Color32::from_rgb(217, 171, 72);
 }
 
 /// Luminância relativa de uma cor, como a WCAG 2.1 define.
@@ -1067,7 +1065,7 @@ mod testes {
     /// * borda de elemento informativo: **3:1** (WCAG 1.4.11).
     #[test]
     fn a_paleta_passa_na_wcag_aa() {
-        let textos: [(&str, Color32, Color32); 16] = [
+        let textos: [(&str, Color32, Color32); 15] = [
             ("texto principal no fundo", Tema::TEXTO, Tema::FUNDO),
             ("texto principal no cartão", Tema::TEXTO, Tema::PAINEL),
             ("texto principal no controle", Tema::TEXTO, Tema::PAINEL_ALTO),
@@ -1078,7 +1076,6 @@ mod testes {
             ("laranja no cartão", Tema::ACCENT, Tema::PAINEL),
             ("verde no cartão", Tema::VERDE, Tema::PAINEL),
             ("vermelho no cartão", Tema::VERMELHO, Tema::PAINEL),
-            ("âmbar no cartão", Tema::AMBAR, Tema::PAINEL),
             ("tinta no botão branco", Tema::TINTA, Tema::TEXTO),
             ("branco no botão primário", Color32::WHITE, Tema::ACCENT_FORTE),
             (
@@ -1105,11 +1102,9 @@ mod testes {
 
         // A borda de 1 px da etiqueta (a "informação" do chip) tem que
         // aparecer contra o cartão: 3:1 (WCAG 1.4.11).
-        let bordas: [(&str, Color32); 5] = [
-            ("borda da etiqueta de repetição", Tema::AMBAR),
-            ("borda da etiqueta de som", Tema::TEXTO_FRACO),
-            ("borda da etiqueta de volume", Tema::VERDE),
-            ("borda da etiqueta de desafio", Tema::ACCENT),
+        let bordas: [(&str, Color32); 3] = [
+            ("borda da etiqueta de repetição", Tema::ACCENT),
+            ("borda da etiqueta neutra", Tema::TEXTO_FRACO),
             ("borda da etiqueta de perigo", Tema::VERMELHO),
         ];
         for (nome, cor) in bordas {
