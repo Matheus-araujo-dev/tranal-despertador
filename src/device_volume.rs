@@ -260,6 +260,36 @@ pub fn configurar_inicio_com_windows(ativar: bool) -> Result<(), String> {
     }
 }
 
+/// Nome do valor de "iniciar com o Windows" gravado pelo `scripts\instalar.ps1`
+/// antigo e pelo instalador (Inno) numa instalação nova. O app usa outro nome
+/// (`TranalDespertador`); este aqui é só um pedido: "o dono quer iniciar com
+/// o Windows".
+const VALOR_LEGADO: &str = "Tranal Despertador";
+
+/// Converte o valor legado em ajuste do app.
+///
+/// O `instalar.ps1` sempre ligava o início automático, por fora do ajuste do
+/// app. O instalador repete isso numa instalação nova. Para a opção da tela e
+/// o registro não divergirem, o valor legado é apagado e vira
+/// `iniciar_com_o_windows = true`. Devolve `true` quando havia o valor.
+pub fn migrar_inicio_legado() -> bool {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(chave) = hkcu.open_subkey_with_flags(
+        r"Software\Microsoft\Windows\CurrentVersion\Run",
+        KEY_READ | KEY_SET_VALUE,
+    ) else {
+        return false;
+    };
+    if chave.get_raw_value(VALOR_LEGADO).is_err() {
+        return false;
+    }
+    let _ = chave.delete_value(VALOR_LEGADO);
+    true
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;

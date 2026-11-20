@@ -1,14 +1,20 @@
-//! Atualização automática via GitHub Releases.
+//! Atualização automática via GitHub Releases (DEC-APPS-DISTRIBUICAO-001).
 //!
-//! O fluxo segue o mesmo padrão do Tranal Sentinel:
+//! O fluxo é o padrão de todo app Tranal:
 //!
-//! 1. Consulta a lista de releases do repositório no GitHub.
-//! 2. Escolhe a maior versão que tenha um asset `.exe`.
-//! 3. Se for mais nova que a versão em execução, avisa a UI.
-//! 4. O dono clica "Atualizar" → o exe novo é baixado para a pasta `update`.
-//! 5. O app lança uma cópia de si mesmo com `--atualizar <caminho>` e avisa
-//!    que a troca acontece quando o app fechar.
-//! 6. O processo filho espera o app pai sair, troca o executável e reabre.
+//! 1. Ao abrir e de hora em hora, o app lista as releases do repositório.
+//! 2. Escolhe a maior tag `vX.Y.Z` (tag que não é versão é ignorada) que tem
+//!    o instalador `Tranal-Despertador-Setup.exe` como asset.
+//! 3. Se ela é maior que a versão gravada no binário, baixa o Setup e confere
+//!    o tamanho.
+//! 4. Roda o Setup em modo silencioso e fecha o app. O Setup (Inno) troca os
+//!    arquivos e reabre o app no fim. Os dados do dono ficam em
+//!    `%APPDATA%\Tranal Despertador` e não são tocados.
+//!
+//! Instalação antiga (a do `scripts\instalar.ps1`, em
+//! `%LOCALAPPDATA%\Programs\Tranal Despertador`) aceita a release da MESMA
+//! versão: é assim que ela passa para o instalador na primeira checagem, em
+//! vez de esperar a próxima versão.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -22,10 +28,13 @@ use std::thread;
 use std::time::Duration;
 
 const REPOSITORIO: &str = "Matheus-araujo-dev/tranal-despertador";
-const NOME_EXE: &str = "tranal-despertador.exe";
+/// O nome do instalador publicado em cada release (o `OutputBaseFilename` do `.iss`).
+pub const NOME_SETUP: &str = "Tranal-Despertador-Setup.exe";
 const USER_AGENT: &str = "tranal-despertador";
 const TIMEOUT_CHECAGEM: Duration = Duration::from_secs(10);
 const TIMEOUT_DOWNLOAD: Duration = Duration::from_secs(900);
+/// De quanto em quanto tempo a lista de releases é conferida de novo.
+pub const INTERVALO_CHECAGEM: Duration = Duration::from_secs(60 * 60);
 
 // ---------------------------------------------------------------------------
 // Versão
@@ -39,6 +48,8 @@ pub struct Versao {
 }
 
 impl Versao {
+    /// A versão gravada no binário (o CI sobrescreve a do `Cargo.toml` com a
+    /// da release antes de compilar).
     pub fn do_app() -> Self {
         Self::parse(env!("CARGO_PKG_VERSION")).unwrap_or(Versao {
             maior: 0,
@@ -47,15 +58,24 @@ impl Versao {
         })
     }
 
+    /// Lê `X.Y.Z` (com ou sem o `v`). Qualquer outra coisa não é versão.
     pub fn parse(texto: &str) -> Option<Self> {
-        let limpo = texto.trim().trim_start_matches(['v', 'V']);
-        let partes: Vec<&str> = limpo.split('.').collect();
-        if partes.is_empty() {
+        let limpo = texto.trim();
+        let limpo = limpo.strip_prefix(['v', 'V']).unwrap_or(limpo);
+        let mut partes = limpo.split('.');
+        let mut numero = || -> Option<u32> {
+            let p = partes.next()?;
+            if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            p.parse().ok()
+        };
+        let maior = numero()?;
+        let menor = numero()?;
+        let correcao = numero()?;
+        if partes.next().is_some() {
             return None;
         }
-        let maior = partes.first().and_then(|p| p.parse().ok()).unwrap_or(0);
-        let menor = partes.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
-        let correcao = partes.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);
         Some(Versao {
             maior,
             menor,
@@ -63,8 +83,14 @@ impl Versao {
         })
     }
 
+    /// Uma tag de release é versão só no formato `vX.Y.Z`.
+    pub fn da_tag(tag: &str) -> Option<Self> {
+        let resto = tag.strip_prefix('v')?;
+        Self::parse(resto)
+    }
+
     pub fn completa(&self) -> String {
-        format!("{}.{}.{}", self.maior, self.menor, self.correcao)
+        self.to_string()
     }
 }
 
@@ -97,49 +123,98 @@ impl fmt::Display for Versao {
 pub struct ReleaseGitHub {
     pub tag: String,
     pub titulo: String,
-    pub url_pagina: String,
-    pub nome_asset: String,
     pub url_asset: String,
     pub tamanho: u64,
 }
 
-// ---------------------------------------------------------------------------
-// Resultado da checagem
-// ---------------------------------------------------------------------------
+/// Escolhe, na lista de releases da API do GitHub, a que deve ser instalada.
+///
+/// Parte pura do atualizador (sem rede): pega a maior tag `vX.Y.Z` que não é
+/// rascunho nem pré-release e que tem o Setup como asset. Ela só vale se for
+/// maior que `atual` — ou igual, quando `aceitar_mesma` (instalação antiga
+/// que precisa passar para o instalador).
+pub fn escolher_release(
+    releases: &serde_json::Value,
+    atual: &Versao,
+    aceitar_mesma: bool,
+) -> Option<(Versao, ReleaseGitHub)> {
+    let melhor = releases
+        .as_array()?
+        .iter()
+        .filter_map(extrair_release)
+        .max_by(|(a, _), (b, _)| a.cmp(b))?;
+    let serve = match melhor.0.cmp(atual) {
+        Ordering::Greater => true,
+        Ordering::Equal => aceitar_mesma,
+        Ordering::Less => false,
+    };
+    serve.then_some(melhor)
+}
 
-#[derive(Clone, Debug)]
-pub struct ResultadoChecagem {
-    pub ha_versao_nova: bool,
-    pub versao_atual: Versao,
-    pub versao_nova: Option<Versao>,
-    pub release: Option<ReleaseGitHub>,
-    pub erro: Option<String>,
+fn extrair_release(item: &serde_json::Value) -> Option<(Versao, ReleaseGitHub)> {
+    if item.get("draft").and_then(|v| v.as_bool()).unwrap_or(false)
+        || item.get("prerelease").and_then(|v| v.as_bool()).unwrap_or(false)
+    {
+        return None;
+    }
+    let tag = item.get("tag_name")?.as_str()?;
+    let versao = Versao::da_tag(tag)?;
+    let titulo = item
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(tag)
+        .to_string();
+
+    let asset = item.get("assets")?.as_array()?.iter().find(|a| {
+        a.get("name")
+            .and_then(|n| n.as_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case(NOME_SETUP))
+    })?;
+    let url_asset = asset.get("browser_download_url")?.as_str()?.to_string();
+    let tamanho = asset.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    Some((
+        versao,
+        ReleaseGitHub {
+            tag: tag.to_string(),
+            titulo,
+            url_asset,
+            tamanho,
+        },
+    ))
 }
 
 // ---------------------------------------------------------------------------
-// Caminhos
+// Instalação atual
 // ---------------------------------------------------------------------------
 
-pub fn pasta_update() -> PathBuf {
-    let local = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    local.join("Programs").join("Tranal Despertador").join("update")
+/// O app está rodando da instalação antiga do `scripts\instalar.ps1`?
+pub fn instalacao_legada(exe: &Path) -> bool {
+    let texto = exe.to_string_lossy().to_ascii_lowercase().replace('/', "\\");
+    texto.contains("\\programs\\tranal despertador\\") && !texto.contains("\\tranal group\\")
 }
 
-pub fn caminho_arquivo_novo() -> PathBuf {
-    pasta_update().join("tranal-despertador.exe.new")
+/// O executável em uso está numa pasta de instalação (antiga ou do Setup)?
+///
+/// Rodando de `target\` (desenvolvimento), o app não se atualiza sozinho:
+/// rodar o Setup ali instalaria por cima do que o dono está testando.
+pub fn instalado(exe: &Path) -> bool {
+    let texto = exe.to_string_lossy().to_ascii_lowercase().replace('/', "\\");
+    instalacao_legada(exe) || texto.contains("\\tranal group\\tranal despertador\\")
 }
 
 // ---------------------------------------------------------------------------
 // Checagem
 // ---------------------------------------------------------------------------
 
-pub fn checar() -> ResultadoChecagem {
+/// Consulta o GitHub e devolve a release a instalar (se houver).
+pub fn checar() -> Result<Option<(Versao, ReleaseGitHub)>, String> {
     let atual = Versao::do_app();
+    let aceitar_mesma = std::env::current_exe()
+        .map(|e| instalacao_legada(&e))
+        .unwrap_or(false);
 
-    let url = format!(
-        "https://api.github.com/repos/{REPOSITORIO}/releases?per_page=20"
-    );
-
+    let url = format!("https://api.github.com/repos/{REPOSITORIO}/releases?per_page=30");
     let resp = match ureq::get(&url)
         .set("User-Agent", USER_AGENT)
         .set("Accept", "application/vnd.github+json")
@@ -147,148 +222,30 @@ pub fn checar() -> ResultadoChecagem {
         .call()
     {
         Ok(r) => r,
-        Err(ureq::Error::Status(404, _)) => {
-            return ResultadoChecagem {
-                ha_versao_nova: false,
-                versao_atual: atual,
-                versao_nova: None,
-                release: None,
-                erro: None,
-            };
-        }
-        Err(e) => {
-            return ResultadoChecagem {
-                ha_versao_nova: false,
-                versao_atual: atual,
-                versao_nova: None,
-                release: None,
-                erro: Some(mensagem_de_erro(&e)),
-            };
-        }
+        Err(ureq::Error::Status(404, _)) => return Ok(None),
+        Err(e) => return Err(mensagem_de_erro(&e)),
     };
-
-    let corpo = match resp.into_string() {
-        Ok(s) => s,
-        Err(_) => {
-            return ResultadoChecagem {
-                ha_versao_nova: false,
-                versao_atual: atual,
-                versao_nova: None,
-                release: None,
-                erro: None,
-            };
-        }
-    };
-    let json: serde_json::Value = match serde_json::from_str(&corpo) {
-        Ok(v) => v,
-        Err(_) => {
-            return ResultadoChecagem {
-                ha_versao_nova: false,
-                versao_atual: atual,
-                versao_nova: None,
-                release: None,
-                erro: None,
-            };
-        }
-    };
-
-    let mut melhor: Option<(Versao, ReleaseGitHub)> = None;
-
-    if let Some(arr) = json.as_array() {
-        for item in arr {
-            if let Some((versao, release)) = extrair_release(item) {
-                match &melhor {
-                    None => melhor = Some((versao, release)),
-                    Some((v, _)) if versao > *v => melhor = Some((versao, release)),
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    match melhor {
-        None => ResultadoChecagem {
-            ha_versao_nova: false,
-            versao_atual: atual,
-            versao_nova: None,
-            release: None,
-            erro: None,
-        },
-        Some((versao, release)) => {
-            let nova = versao > atual;
-            ResultadoChecagem {
-                ha_versao_nova: nova,
-                versao_atual: atual,
-                versao_nova: Some(versao),
-                release: Some(release),
-                erro: None,
-            }
-        }
-    }
-}
-
-fn extrair_release(item: &serde_json::Value) -> Option<(Versao, ReleaseGitHub)> {
-    let tag = item.get("tag_name")?.as_str()?.to_string();
-    let versao = Versao::parse(&tag)?;
-
-    let titulo = item
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&tag)
-        .to_string();
-    let url_pagina = item
-        .get("html_url")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let assets = item.get("assets")?.as_array()?;
-
-    let mut primeiro_exe: Option<ReleaseGitHub> = None;
-    for asset in assets {
-        let nome = asset.get("name")?.as_str()?;
-        let url = asset
-            .get("browser_download_url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let tamanho = asset
-            .get("size")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-
-        if nome.eq_ignore_ascii_case(NOME_EXE) {
-            return Some((
-                versao,
-                ReleaseGitHub {
-                    tag,
-                    titulo,
-                    url_pagina,
-                    nome_asset: nome.to_string(),
-                    url_asset: url,
-                    tamanho,
-                },
-            ));
-        }
-
-        if primeiro_exe.is_none() && nome.to_ascii_lowercase().ends_with(".exe") {
-            primeiro_exe = Some(ReleaseGitHub {
-                tag: tag.clone(),
-                titulo: titulo.clone(),
-                url_pagina: url_pagina.clone(),
-                nome_asset: nome.to_string(),
-                url_asset: url,
-                tamanho,
-            });
-        }
-    }
-
-    primeiro_exe.map(|r| (versao, r))
+    let corpo = resp
+        .into_string()
+        .map_err(|e| format!("Resposta do GitHub ilegível: {e}"))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&corpo).map_err(|e| format!("JSON do GitHub inválido: {e}"))?;
+    Ok(escolher_release(&json, &atual, aceitar_mesma))
 }
 
 // ---------------------------------------------------------------------------
 // Download
 // ---------------------------------------------------------------------------
+
+/// Pasta onde o Setup baixado fica até rodar.
+pub fn pasta_update() -> PathBuf {
+    let local = dirs::data_local_dir().unwrap_or_else(std::env::temp_dir);
+    local.join("Tranal Despertador").join("update")
+}
+
+pub fn caminho_setup() -> PathBuf {
+    pasta_update().join(NOME_SETUP)
+}
 
 pub struct Progresso {
     pub baixados: Arc<Mutex<u64>>,
@@ -298,7 +255,7 @@ pub struct Progresso {
 }
 
 pub fn baixar_em_segundo_plano(release: &ReleaseGitHub) -> Progresso {
-    let destino = caminho_arquivo_novo();
+    let destino = caminho_setup();
     let url = release.url_asset.clone();
     let total = release.tamanho;
 
@@ -312,7 +269,7 @@ pub fn baixar_em_segundo_plano(release: &ReleaseGitHub) -> Progresso {
 
     thread::spawn(move || {
         if let Err(msg) = baixar_bloqueante(&url, &destino, total, &b) {
-            *e.lock().unwrap() = Some(msg);
+            *e.lock().unwrap_or_else(|p| p.into_inner()) = Some(msg);
         }
         c.store(true, AO::Release);
     });
@@ -341,13 +298,14 @@ fn baixar_bloqueante(
         .call()
         .map_err(|e| format!("Falha no download: {e}"))?;
 
+    // Baixa num .part e só renomeia completo: um Setup pela metade nunca roda.
+    let parcial = destino.with_extension("part");
     let mut reader = resp.into_reader();
     let mut arquivo =
-        fs::File::create(destino).map_err(|e| format!("Não consegui criar o arquivo: {e}"))?;
+        fs::File::create(&parcial).map_err(|e| format!("Não consegui criar o arquivo: {e}"))?;
 
     let mut buf = [0u8; 64 * 1024];
     let mut lidos_total: u64 = 0;
-
     loop {
         let n = reader
             .read(&mut buf)
@@ -359,109 +317,56 @@ fn baixar_bloqueante(
             .write_all(&buf[..n])
             .map_err(|e| format!("Erro de escrita: {e}"))?;
         lidos_total += n as u64;
-        *baixados.lock().unwrap() = lidos_total;
+        *baixados.lock().unwrap_or_else(|p| p.into_inner()) = lidos_total;
     }
-
     arquivo
         .flush()
         .map_err(|e| format!("Erro ao finalizar: {e}"))?;
+    drop(arquivo);
 
-    if total_esperado > 0 && lidos_total != total_esperado {
+    if total_esperado == 0 || lidos_total != total_esperado {
+        let _ = fs::remove_file(&parcial);
         return Err(format!(
-            "Arquivo incompleto: {} de {} bytes",
-            lidos_total, total_esperado
+            "Arquivo incompleto: {lidos_total} de {total_esperado} bytes"
         ));
     }
-
-    Ok(())
+    let _ = fs::remove_file(destino);
+    fs::rename(&parcial, destino).map_err(|e| format!("Não consegui finalizar o Setup: {e}"))
 }
 
 // ---------------------------------------------------------------------------
-// Troca do executável
+// Instalação
 // ---------------------------------------------------------------------------
 
-pub fn iniciar_troca(caminho_novo: &Path) -> io::Result<()> {
-    if !caminho_novo.exists() {
+/// Argumentos do Setup em modo silencioso (DEC-APPS-DISTRIBUICAO-001).
+///
+/// `/MINIMIZADO=1` é lido pelo `.iss`: o app reaberto no fim volta escondido
+/// na bandeja, como estava, em vez de aparecer na frente do dono.
+pub fn argumentos_setup(minimizado: bool) -> Vec<&'static str> {
+    let mut args = vec![
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        "/CLOSEAPPLICATIONS",
+    ];
+    if minimizado {
+        args.push("/MINIMIZADO=1");
+    }
+    args
+}
+
+/// Lança o Setup baixado. Quem chama fecha o app logo em seguida.
+pub fn rodar_setup(setup: &Path, minimizado: bool) -> io::Result<()> {
+    if !setup.exists() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "O arquivo novo não existe",
+            "O Setup baixado não existe",
         ));
     }
-
-    let exe_atual = std::env::current_exe()?;
-
-    Command::new(&exe_atual)
-        .arg("--atualizar")
-        .arg(caminho_novo)
+    Command::new(setup)
+        .args(argumentos_setup(minimizado))
         .spawn()?;
-
     Ok(())
-}
-
-/// Executado quando o app é chamado com `--atualizar <caminho_novo>`.
-///
-/// Espera o processo pai fechar (o exe fica travado enquanto roda), troca o
-/// executável no lugar e abre o app atualizado.
-pub fn executar_troca(args: &[String]) -> bool {
-    let Some(caminho_str) = args.get(args.iter().position(|a| a == "--atualizar").unwrap() + 1)
-    else {
-        eprintln!("Uso: tranal-despertador --atualizar <caminho_do_novo_exe>");
-        std::process::exit(1);
-    };
-    let caminho_novo = PathBuf::from(caminho_str);
-
-    if !caminho_novo.exists() {
-        registrar_no_log(&format!(
-            "ERRO: arquivo novo não existe: {}",
-            caminho_novo.display()
-        ));
-        std::process::exit(1);
-    }
-
-    let exe_destino = destino_instalado();
-    registrar_no_log(&format!(
-        "Iniciando troca: {} → {}",
-        caminho_novo.display(),
-        exe_destino.display()
-    ));
-
-    // Espera o exe de destino ficar desbloqueado (o app pai está fechando).
-    for tentativa in 0..60 {
-        if tentativa > 0 {
-            thread::sleep(Duration::from_millis(500));
-        }
-        match fs::copy(&caminho_novo, &exe_destino) {
-            Ok(_) => {
-                registrar_no_log("Executável trocado com sucesso.");
-                let _ = fs::remove_file(&caminho_novo);
-
-                // Abre o app atualizado.
-                let _ = Command::new(&exe_destino).spawn();
-                registrar_no_log("App atualizado iniciado.");
-                return true;
-            }
-            Err(e) if tentativa < 59 => {
-                if tentativa == 0 {
-                    registrar_no_log(&format!("Esperando o app fechar... ({e})"));
-                }
-            }
-            Err(e) => {
-                registrar_no_log(&format!("ERRO: não consegui trocar após 30s: {e}"));
-                std::process::exit(1);
-            }
-        }
-    }
-
-    false
-}
-
-/// O caminho do exe instalado: `%LOCALAPPDATA%\Programs\Tranal Despertador\tranal-despertador.exe`.
-fn destino_instalado() -> PathBuf {
-    let local = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    local
-        .join("Programs")
-        .join("Tranal Despertador")
-        .join(NOME_EXE)
 }
 
 // ---------------------------------------------------------------------------
@@ -498,10 +403,6 @@ pub fn formatar_tamanho(bytes: u64) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Auxiliares
-// ---------------------------------------------------------------------------
-
 fn mensagem_de_erro(e: &ureq::Error) -> String {
     match e {
         ureq::Error::Status(403, _) => {
@@ -513,5 +414,145 @@ fn mensagem_de_erro(e: &ureq::Error) -> String {
         }
         ureq::Error::Status(code, _) => format!("O GitHub respondeu {code}."),
         ureq::Error::Transport(t) => format!("Não foi possível falar com o GitHub: {t}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Testes
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+    use serde_json::json;
+
+    fn v(texto: &str) -> Versao {
+        Versao::parse(texto).unwrap()
+    }
+
+    fn release(tag: &str, asset: &str) -> serde_json::Value {
+        json!({
+            "tag_name": tag,
+            "name": tag,
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+                { "name": "tranal-despertador.exe", "browser_download_url": "https://x/exe", "size": 10 },
+                { "name": asset, "browser_download_url": format!("https://x/{tag}/{asset}"), "size": 1234 }
+            ]
+        })
+    }
+
+    #[test]
+    fn versao_so_aceita_tres_numeros() {
+        assert_eq!(v("0.4.1"), Versao { maior: 0, menor: 4, correcao: 1 });
+        assert_eq!(v("v1.2.3"), Versao { maior: 1, menor: 2, correcao: 3 });
+        assert!(Versao::parse("1.2").is_none());
+        assert!(Versao::parse("1.2.3.4").is_none());
+        assert!(Versao::parse("1.2.x").is_none());
+        assert!(Versao::parse("latest").is_none());
+        assert!(Versao::parse("1.2.3-beta").is_none());
+    }
+
+    #[test]
+    fn tag_de_versao_exige_v() {
+        assert_eq!(Versao::da_tag("v0.10.2"), Some(v("0.10.2")));
+        assert!(Versao::da_tag("0.10.2").is_none());
+        assert!(Versao::da_tag("latest").is_none());
+        assert!(Versao::da_tag("v1.0").is_none());
+    }
+
+    #[test]
+    fn comparacao_e_numerica_e_nao_textual() {
+        assert!(v("0.10.0") > v("0.9.9"));
+        assert!(v("1.0.0") > v("0.99.99"));
+        assert!(v("0.4.10") > v("0.4.9"));
+    }
+
+    #[test]
+    fn escolhe_a_maior_tag_maior_que_a_atual() {
+        let lista = json!([
+            release("v0.4.2", NOME_SETUP),
+            release("v0.10.0", NOME_SETUP),
+            release("v0.9.0", NOME_SETUP),
+        ]);
+        let (versao, rel) = escolher_release(&lista, &v("0.4.0"), false).unwrap();
+        assert_eq!(versao, v("0.10.0"));
+        assert_eq!(rel.tag, "v0.10.0");
+        assert_eq!(rel.tamanho, 1234);
+        assert!(rel.url_asset.ends_with(NOME_SETUP));
+    }
+
+    #[test]
+    fn ignora_tag_que_nao_e_versao() {
+        let lista = json!([
+            release("latest", NOME_SETUP),
+            release("v2.0", NOME_SETUP),
+            release("nightly-5", NOME_SETUP),
+            release("v0.5.0", NOME_SETUP),
+        ]);
+        let (versao, _) = escolher_release(&lista, &v("0.4.0"), false).unwrap();
+        assert_eq!(versao, v("0.5.0"));
+    }
+
+    #[test]
+    fn ignora_release_sem_setup_rascunho_e_prerelease() {
+        let mut rascunho = release("v0.9.0", NOME_SETUP);
+        rascunho["draft"] = json!(true);
+        let mut pre = release("v0.8.0", NOME_SETUP);
+        pre["prerelease"] = json!(true);
+        let lista = json!([
+            release("v1.0.0", "outro-arquivo.zip"),
+            rascunho,
+            pre,
+            release("v0.5.0", NOME_SETUP),
+        ]);
+        let (versao, _) = escolher_release(&lista, &v("0.4.0"), false).unwrap();
+        assert_eq!(versao, v("0.5.0"));
+    }
+
+    #[test]
+    fn nada_a_fazer_quando_ja_esta_na_maior() {
+        let lista = json!([release("v0.4.0", NOME_SETUP), release("v0.3.9", NOME_SETUP)]);
+        assert!(escolher_release(&lista, &v("0.4.0"), false).is_none());
+        assert!(escolher_release(&lista, &v("0.5.0"), false).is_none());
+        assert!(escolher_release(&json!([]), &v("0.4.0"), false).is_none());
+        assert!(escolher_release(&json!({"message": "x"}), &v("0.4.0"), false).is_none());
+    }
+
+    #[test]
+    fn instalacao_antiga_aceita_a_mesma_versao() {
+        let lista = json!([release("v0.4.0", NOME_SETUP)]);
+        let (versao, _) = escolher_release(&lista, &v("0.4.0"), true).unwrap();
+        assert_eq!(versao, v("0.4.0"));
+        // Mas nunca volta para uma versão menor.
+        assert!(escolher_release(&lista, &v("0.5.0"), true).is_none());
+    }
+
+    #[test]
+    fn reconhece_a_instalacao_antiga_e_a_nova() {
+        let antiga = Path::new(
+            r"C:\Users\x\AppData\Local\Programs\Tranal Despertador\tranal-despertador.exe",
+        );
+        let nova = Path::new(
+            r"C:\Users\x\AppData\Local\Programs\Tranal Group\Tranal Despertador\tranal-despertador.exe",
+        );
+        let pf = Path::new(r"C:\Program Files\Tranal Group\Tranal Despertador\tranal-despertador.exe");
+        let dev = Path::new(r"E:\Projetos\tranal-despertador\target\release\tranal-despertador.exe");
+        assert!(instalacao_legada(antiga));
+        assert!(!instalacao_legada(nova));
+        assert!(!instalacao_legada(pf));
+        assert!(instalado(antiga) && instalado(nova) && instalado(pf));
+        assert!(!instalado(dev));
+    }
+
+    #[test]
+    fn setup_roda_silencioso_e_fecha_o_app() {
+        let args = argumentos_setup(false);
+        for esperado in ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"] {
+            assert!(args.contains(&esperado), "falta {esperado}");
+        }
+        assert!(!args.contains(&"/MINIMIZADO=1"));
+        assert!(argumentos_setup(true).contains(&"/MINIMIZADO=1"));
     }
 }

@@ -35,3 +35,6 @@ desktop.ini
 # Python (scripts auxiliares)
 __pycache__/
 *.pyc
+
+# Saida do instalador (iscc)
+/dist

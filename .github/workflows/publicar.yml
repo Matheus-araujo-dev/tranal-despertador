@@ -1,0 +1,160 @@
+name: Publicar
+
+# Padrão de todos os apps Tranal (DEC-APPS-DISTRIBUICAO-001). Todo push na
+# main (todo PR mesclado) vira uma versão nova, sem passo manual:
+#   1. decide o número da versão (ver o passo "Decidir a versão");
+#   2. grava esse número no Cargo.toml (só no runner) e roda os testes;
+#   3. gera o tranal-despertador.exe com o número gravado e confere;
+#   4. compila o instalador (iscc /DMyAppVersion=...) e confere;
+#   5. cria a tag vX.Y.Z e a release "Latest" com o Tranal-Despertador-Setup.exe.
+# O atualizador do app (src/atualizador.rs) procura a maior tag vX.Y.Z entre
+# as releases: sem a tag versionada, o app instalado nunca veria a versão.
+#
+# O botão "Run workflow" (aba Actions) publica na hora, escolhendo o salto:
+# patch (0.4.1 -> 0.4.2), minor (-> 0.5.0) ou major (-> 1.0.0).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tipo:
+        description: 'Que parte da versão sobe'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publicar
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Só a main publica: o botão rodado em outra branch soltaria uma
+      # release com código que não foi mesclado.
+      - name: Conferir a branch
+        if: github.ref != 'refs/heads/main'
+        shell: pwsh
+        run: throw "Publicar só roda na main (esta execução é de $env:GITHUB_REF)."
+
+      # A versão nova parte da maior tag vX.Y.Z já publicada e sobe a parte
+      # pedida (no push, sempre o patch). A versão do Cargo.toml é um PISO: se
+      # ela é maior que o resultado (alguém subiu à mão), vale ela. Assim
+      # nenhuma release sai com número repetido ou menor.
+      - name: Decidir a versão
+        id: versao
+        shell: pwsh
+        env:
+          TIPO: ${{ inputs.tipo || 'patch' }}
+        run: |
+          $linha = Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(\d+)\.(\d+)\.(\d+)"' | Select-Object -First 1
+          if (-not $linha) { throw "Não achei a versão X.Y.Z no Cargo.toml." }
+          $g = $linha.Matches[0].Groups
+          $piso = [version]::new([int]$g[1].Value, [int]$g[2].Value, [int]$g[3].Value)
+
+          $tags = git ls-remote --tags origin |
+            ForEach-Object { ($_ -split 'refs/tags/')[1] } |
+            Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } |
+            ForEach-Object { [version]$_.Substring(1) }
+          $maior = $tags | Sort-Object -Descending | Select-Object -First 1
+          if (-not $maior) { $maior = [version]::new(0, 0, 0) }
+
+          $candidata = switch ($env:TIPO) {
+            'major' { [version]::new($maior.Major + 1, 0, 0) }
+            'minor' { [version]::new($maior.Major, $maior.Minor + 1, 0) }
+            default { [version]::new($maior.Major, $maior.Minor, $maior.Build + 1) }
+          }
+          $nova = if ($piso -gt $candidata) { $piso } else { $candidata }
+
+          "Tipo: $env:TIPO | maior tag: $maior | piso (Cargo.toml): $piso | versão nova: $nova"
+          "numero=$nova" >> $env:GITHUB_OUTPUT
+
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      # O cargo não tem como trocar a versão do pacote pela linha de comando:
+      # o número decidido é gravado no Cargo.toml do runner (não volta para o
+      # repositório). É dele que sai o env!("CARGO_PKG_VERSION") do binário,
+      # com o qual o atualizador compara.
+      - name: Gravar a versão no Cargo.toml
+        shell: pwsh
+        run: |
+          $v = "${{ steps.versao.outputs.numero }}"
+          $texto = Get-Content Cargo.toml -Raw
+          $novo = [regex]::new('(?m)^version\s*=\s*"[^"]*"').Replace($texto, "version = `"$v`"", 1)
+          [IO.File]::WriteAllText("$PWD\Cargo.toml", $novo)
+          Select-String -Path Cargo.toml -Pattern '^version' | Select-Object -First 1
+
+      - name: Testes
+        run: cargo test
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Conferir a versão gravada no executável
+        shell: pwsh
+        run: |
+          $esperada = "${{ steps.versao.outputs.numero }}"
+          $saida = Join-Path $env:RUNNER_TEMP 'versao.txt'
+          Start-Process target\release\tranal-despertador.exe -ArgumentList '--versao' -RedirectStandardOutput $saida -Wait -NoNewWindow
+          $gravada = (Get-Content $saida -Raw).Trim()
+          if ($gravada -ne $esperada) { throw "O executável saiu com a versão $gravada, e a release é $esperada." }
+          "tranal-despertador.exe $gravada"
+
+      # O exe não tem ícone embutido (o desenho é feito em código): o próprio
+      # app grava o .ico que o instalador usa no Setup e nos atalhos.
+      - name: Gerar o ícone
+        shell: pwsh
+        run: |
+          Start-Process target\release\tranal-despertador.exe -ArgumentList '--exportar-icone', 'target\release\tranal-despertador.ico' -Wait -NoNewWindow
+          if (-not (Test-Path target\release\tranal-despertador.ico)) { throw "O ícone não foi gerado." }
+
+      - name: Compilar o instalador
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress | Out-Host
+          }
+          & $iscc "/DMyAppVersion=${{ steps.versao.outputs.numero }}" installer\tranal-despertador.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc falhou ($LASTEXITCODE)." }
+
+      - name: Conferir a versão do instalador
+        shell: pwsh
+        run: |
+          $esperada = "${{ steps.versao.outputs.numero }}"
+          $setup = Get-Item dist\Tranal-Despertador-Setup.exe
+          $gravada = $setup.VersionInfo.ProductVersion
+          if ($gravada -notlike "$esperada*") { throw "O Setup saiu com a versão $gravada, e a release é $esperada." }
+          "$($setup.Name) $gravada ($($setup.Length) bytes)"
+
+      # A release é a "Latest" do GitHub. A tag é criada pelo gh no commit
+      # deste push (tag criada com o GITHUB_TOKEN não dispara outro workflow).
+      #
+      # O tranal-despertador.exe solto vai junto só pela transição: o
+      # atualizador antigo (v0.3/v0.4) procura esse nome e troca o exe no
+      # lugar; o app novo, rodando da pasta antiga, roda o Setup e migra
+      # para o Tranal Group. O atualizador novo só olha para o Setup.
+      - name: Release da versão
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v${{ steps.versao.outputs.numero }}"
+          gh release create $tag dist\Tranal-Despertador-Setup.exe target\release\tranal-despertador.exe `
+            --target $env:GITHUB_SHA --latest --title "Tranal Despertador $tag" --generate-notes
