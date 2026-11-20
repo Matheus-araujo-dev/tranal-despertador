@@ -48,7 +48,6 @@ impl Tema {
     /// Texto secundário (6,3:1 no fundo — Sentinel Muted #8C8C8C).
     pub const TEXTO_FRACO: Color32 = Color32::from_rgb(140, 140, 140);
     /// Preto para texto sobre fundo claro (Sentinel Ink #000).
-    #[allow(dead_code)]
     pub const TINTA: Color32 = Color32::from_rgb(0, 0, 0);
     /// Cinza fraco (3,1:1 no cartão — Sentinel Faint, ajustado para WCAG).
     #[allow(dead_code)]
@@ -365,9 +364,9 @@ fn pintar_botao(ui: &mut Ui, ret: egui::Rect, texto: &str, estilo: EstiloBotao, 
             Color32::WHITE,
         ),
         EstiloBotao::Neutro => (
-            Tema::PAINEL_ALTO,
-            Tema::PAINEL_ALTO,
-            Some(Tema::BORDA),
+            Color32::TRANSPARENT,
+            Tema::BORDA,
+            Some(Tema::TEXTO),
             Some(Tema::BORDA_FORTE),
             Tema::TEXTO,
             Tema::TEXTO,
@@ -696,7 +695,7 @@ pub fn seletor_segmentado(ui: &mut Ui, segmentos: &[Segmento], selecionado: usiz
             let (ret, resposta) = ui.allocate_exact_size(Vec2::new(largura, altura), Sense::click());
             let ativo = i == selecionado;
             let fundo = if ativo {
-                Tema::ACCENT_FORTE
+                Tema::TEXTO
             } else if resposta.hovered() {
                 Tema::PAINEL_ALTO
             } else {
@@ -711,7 +710,7 @@ pub fn seletor_segmentado(ui: &mut Ui, segmentos: &[Segmento], selecionado: usiz
                     egui::StrokeKind::Middle,
                 );
             }
-            let cor = if ativo { Color32::WHITE } else { Tema::TEXTO };
+            let cor = if ativo { Tema::TINTA } else { Tema::TEXTO };
             ui.painter().text(
                 ret.center(),
                 Align2::CENTER_CENTER,
@@ -1014,7 +1013,7 @@ mod testes {
             borda_da_linha = ui.max_rect().right();
             ui.horizontal(|ui| {
                 // O conteúdo da esquerda (as etiquetas do despertador).
-                borda_da_etiqueta = chip(ui, "Uma vez", Tema::AMBAR).right();
+                borda_da_etiqueta = chip(ui, "Uma vez", Tema::ACCENT).right();
                 // O grupo de ações, à direita.
                 acoes_a_direita(
                     ui,
@@ -1025,11 +1024,11 @@ mod testes {
                 );
             });
         });
-        // Os dois botões do grupo (o preenchimento neutro).
+        // Os dois botões do grupo (a borda outline do neutro).
         let acoes: Vec<egui::Rect> = formas
             .iter()
             .filter_map(|f| match f {
-                egui::Shape::Rect(r) if r.fill == Tema::PAINEL_ALTO => Some(r.rect),
+                egui::Shape::Rect(r) if r.stroke.color == Tema::TEXTO => Some(r.rect),
                 _ => None,
             })
             .collect();
