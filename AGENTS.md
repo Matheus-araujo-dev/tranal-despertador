@@ -25,3 +25,12 @@ cargo clippy -- -D warnings
 ```
 
 Documentos: `docs/SPEC.md` (especificação), `docs/arquitetura/` (desenhos por marco), `docs/decisoes/` (índice de decisões).
+
+## Instalação, publicação e atualização (DEC-APPS-DISTRIBUICAO-001)
+
+Padrão de todo app Tranal (`D:\project-ai\docs\decisions\DEC-APPS-DISTRIBUICAO-001.md`):
+
+- **Instalador:** `installer\tranal-despertador.iss` (Inno Setup 6, UTF-8 com BOM) gera um `Tranal-Despertador-Setup.exe` único em `{autopf}\Tranal Group\Tranal Despertador`. Instalação por usuário (`PrivilegesRequired=lowest`: `{autopf}` = `%LOCALAPPDATA%\Programs`, sem UAC na atualização silenciosa). `AppId` fixo `{259DBB0D-2F4A-4D3F-9B7A-CFEF530376E6}` — nunca mude. Migra a instalação do `instalar.ps1` antigo (pasta, atalhos, valor `Tranal Despertador` da chave Run) e não toca em `%APPDATA%\Tranal Despertador`.
+- **Publicação:** `.github\workflows\publicar.yml`. Todo push na `main` = release nova (maior tag `vX.Y.Z` + 1 no patch; botão `workflow_dispatch` para minor/major; `Cargo.toml` é piso). O número é gravado no `Cargo.toml` do runner antes do build; o CI confere com `tranal-despertador.exe --versao` e o `VersionInfo` do Setup. Não suba a versão do `Cargo.toml` à mão a cada PR.
+- **Atualizador:** `src\atualizador.rs` (escolha da versão é pura e testada: `escolher_release`). Ao abrir e de hora em hora; baixa o Setup, confere o tamanho, roda `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS` e fecha; o Setup reabre o app. Só roda de uma pasta de instalação (nunca de `target\`).
+- **Quem mescla o PR é o agente** (`gh pr merge --merge`), e acompanha o Actions até a release sair.

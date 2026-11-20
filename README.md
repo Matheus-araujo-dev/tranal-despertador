@@ -29,8 +29,9 @@ embarcado) e o agendamento **dorme** até o próximo evento.
   de notificação (o app se promove sozinho — o Windows 11 esconde ícone
   novo). Clique esquerdo abre a janela; clique direito abre o menu
   (“Abrir o Tranal” / “Sair”).
-- **Instalador**: um comando instala o app no PC, cria os atalhos e liga o
-  início automático.
+- **Instalador e atualização automática**: um `Setup.exe` instala o app, cria
+  os atalhos e liga o início automático; o app se atualiza sozinho a cada
+  release.
 - **Interface com respiro**: nada encosta na borda da janela. A página tem
   32 px de margem, os cartões têm 20 px de respiro interno e a ação
   principal (“+ Novo despertador”) fica na linha do título da página. O
@@ -49,27 +50,52 @@ embarcado) e o agendamento **dorme** até o próximo evento.
 
 ## Instalar
 
-```powershell
-.\scripts\instalar.ps1
-```
+Baixe o **`Tranal-Despertador-Setup.exe`** da
+[release mais nova](https://github.com/Matheus-araujo-dev/tranal-despertador/releases/latest)
+e rode. Um arquivo só: o app vai dentro dele.
 
-O instalador é **por usuário** (não precisa de administrador e não invade
-“Program Files”):
+O instalador (Inno Setup) segue o padrão de todos os apps Tranal
+(`DEC-APPS-DISTRIBUICAO-001`). A instalação é **por usuário** (não pede
+administrador):
 
 | | |
 |---|---|
-| Programa | `%LOCALAPPDATA%\Programs\Tranal Despertador` |
+| Programa | `{autopf}\Tranal Group\Tranal Despertador` = `%LOCALAPPDATA%\Programs\Tranal Group\Tranal Despertador` |
 | Atalho | Menu Iniciar e Área de trabalho |
-| Início automático | ligado, com o app já minimizado |
-| Dados do dono | `%APPDATA%\Tranal Despertador` — **preservados** na reinstalação |
+| Início automático | ligado numa instalação nova, com o app já minimizado (depois, vale a opção da tela) |
+| Dados do dono | `%APPDATA%\Tranal Despertador` — **preservados** na atualização e na desinstalação |
 
-Para desinstalar (os despertadores e os sons continuam no lugar):
+Desinstalar: pelo Windows (Configurações → Aplicativos) ou
+`.\scripts\instalar.ps1 -Desinstalar`. Os despertadores e os sons ficam.
 
-```powershell
-.\scripts\instalar.ps1 -Desinstalar
-```
+**Instalação antiga** (a do `scripts\instalar.ps1` antigo, em
+`%LOCALAPPDATA%\Programs\Tranal Despertador`, v0.4.0 ou anterior): o
+atualizador dela não consegue se trocar sozinho (o exe em uso fica travado).
+Rode o `Tranal-Despertador-Setup.exe` uma vez à mão: ele fecha o app antigo,
+apaga a pasta antiga, sobrescreve os atalhos e passa o início automático para
+o exe novo. Daí em diante as atualizações são automáticas.
 
-Com `-ApagarDados`, os dados do dono também são apagados.
+## Publicação e atualização automática
+
+- **Todo PR mesclado na `main` vira uma release.** O workflow
+  `.github/workflows/publicar.yml` decide a versão (maior tag `vX.Y.Z` + 1 no
+  patch; o `Cargo.toml` é só um piso), grava o número no `Cargo.toml` do
+  runner, roda `cargo test`, compila, confere a versão gravada no binário
+  (`tranal-despertador.exe --versao`), compila o instalador
+  (`iscc /DMyAppVersion=X.Y.Z installer\tranal-despertador.iss`) e cria a tag
+  com a release **Latest** e o Setup como asset.
+- Para subir minor ou major: aba Actions → **Publicar** → *Run workflow* e
+  escolha `patch | minor | major`.
+- **O app se atualiza sozinho**: ao abrir e de hora em hora ele lista as
+  releases, pega a maior tag `vX.Y.Z` maior que a dele, baixa o Setup,
+  confere o tamanho, roda
+  `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS` e fecha. O
+  Setup reabre o app no fim (escondido na bandeja, se ele estava escondido).
+  Nunca no meio de um alarme tocando nem com o editor aberto. Rodando de
+  `target\` (desenvolvimento) ele não se atualiza. Log em
+  `%LOCALAPPDATA%\Tranal Despertador\update\atualizacao.log`.
+- Testar o instalador com o código local: `.\scripts\instalar.ps1` (precisa do
+  Inno Setup 6: `winget install JRSoftware.InnoSetup`).
 
 ## Como rodar (desenvolvimento)
 

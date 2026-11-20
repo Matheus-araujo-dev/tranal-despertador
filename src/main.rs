@@ -46,7 +46,25 @@ fn main() -> eframe::Result<()> {
     // essa divergencia e silenciosa: o app parece la, mas sobe depois do
     // reinicio. Por isso o registro e reconciliado com o ajuste salvo toda
     // vez que o app arranca.
-    let (_, ajustes) = storage::carregar();
+    let (alarmes, mut ajustes) = storage::carregar();
+    // O instalador (ou o instalar.ps1 antigo) pediu início automático pelo
+    // valor legado do registro: vira o ajuste do app, que passa a mandar.
+    // Só grava se o arquivo de dados não existe ou é legível: um arquivo
+    // quebrado volta como lista vazia, e gravar por cima apagaria os alarmes.
+    // Qualquer erro de leitura que não seja "não existe" (arquivo travado,
+    // permissão) conta como ilegível.
+    let dados_legiveis = match std::fs::read_to_string(storage::caminho_dados()) {
+        Ok(t) => serde_json::from_str::<model::BancoDeDados>(&t).is_ok(),
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+    };
+    if device_volume::migrar_inicio_legado() && !ajustes.iniciar_com_o_windows {
+        ajustes.iniciar_com_o_windows = true;
+        if !dados_legiveis {
+            eprintln!("Arquivo de dados ilegivel: o inicio automatico vale so nesta execucao.");
+        } else if let Err(e) = storage::salvar(&alarmes, &ajustes) {
+            eprintln!("Nao consegui gravar o inicio automatico migrado: {e}");
+        }
+    }
     if let Err(e) = device_volume::configurar_inicio_com_windows(ajustes.iniciar_com_o_windows) {
         eprintln!("Nao consegui sincronizar o inicio automatico: {e}");
     }

@@ -147,16 +147,17 @@ pub struct TranalApp {
     release_nova: Option<atualizador::ReleaseGitHub>,
     /// Versão nova disponível.
     versao_nova: Option<atualizador::Versao>,
-    /// O banner de atualização foi dispensado pelo dono.
-    atualizacao_dispensada: bool,
     /// Download em andamento.
     download: Option<atualizador::Progresso>,
     /// Mensagem do download (progresso ou erro).
     download_mensagem: Option<String>,
-    /// A troca do executável já foi agendada.
+    /// O Setup já foi lançado e o app está fechando para ele.
     troca_agendada: bool,
-    /// Instante da última checagem de atualização (para repetir a cada 6 h).
+    /// Instante da última checagem de atualização (para repetir de hora em hora).
     ultima_checagem: Instant,
+    /// O app roda de uma pasta de instalação (e não de `target\`): só aí ele
+    /// se atualiza sozinho.
+    atualiza_sozinho: bool,
 }
 
 impl TranalApp {
@@ -207,15 +208,19 @@ impl TranalApp {
             rx_atualizacao: None,
             release_nova: None,
             versao_nova: None,
-            atualizacao_dispensada: false,
             download: None,
             download_mensagem: None,
             troca_agendada: false,
             ultima_checagem: Instant::now(),
+            atualiza_sozinho: std::env::current_exe()
+                .map(|e| atualizador::instalado(&e))
+                .unwrap_or(false),
         };
 
-        // Checagem de atualização em segundo plano.
-        app.iniciar_checagem_atualizacao(&cc.egui_ctx);
+        // Checagem de atualização em segundo plano (ao abrir e de hora em hora).
+        if app.atualiza_sozinho {
+            app.iniciar_checagem_atualizacao(&cc.egui_ctx);
+        }
 
         app
     }
@@ -248,11 +253,16 @@ impl TranalApp {
         self.rx_atualizacao = Some(rx);
         self.ultima_checagem = Instant::now();
         std::thread::spawn(move || {
-            let resultado = atualizador::checar();
-            if resultado.ha_versao_nova
-                && let (Some(v), Some(rel)) = (resultado.versao_nova, resultado.release)
-            {
-                let _ = tx.send((v, rel));
+            match atualizador::checar() {
+                Ok(Some((v, rel))) => {
+                    atualizador::registrar_no_log(&format!(
+                        "Versão nova encontrada: {} ({}).",
+                        rel.tag, v
+                    ));
+                    let _ = tx.send((v, rel));
+                }
+                Ok(None) => {}
+                Err(e) => atualizador::registrar_no_log(&format!("Checagem falhou: {e}")),
             }
             ctx_att.request_repaint();
         });
@@ -269,14 +279,33 @@ impl TranalApp {
             self.rx_atualizacao = None;
         }
 
-        // Re-checa a cada 6 horas se não há atualização pendente.
-        const INTERVALO: Duration = Duration::from_secs(6 * 60 * 60);
+        if !self.atualiza_sozinho {
+            return;
+        }
+
+        // Re-checa de hora em hora enquanto não há atualização em andamento.
         if self.rx_atualizacao.is_none()
-            && self.release_nova.is_none()
+            && self.download.is_none()
             && !self.troca_agendada
-            && self.ultima_checagem.elapsed() >= INTERVALO
+            && self.ultima_checagem.elapsed() >= atualizador::INTERVALO_CHECAGEM
         {
+            // Uma falha anterior de download não trava o app para sempre:
+            // a próxima checagem tenta de novo.
+            self.release_nova = None;
+            self.versao_nova = None;
+            self.download_mensagem = None;
             self.iniciar_checagem_atualizacao(ctx);
+        }
+
+        // Versão nova encontrada: baixa sozinho, sem esperar clique.
+        if self.download.is_none()
+            && !self.troca_agendada
+            && self.download_mensagem.is_none()
+            && let Some(release) = &self.release_nova
+        {
+            atualizador::registrar_no_log(&format!("Baixando {}.", release.url_asset));
+            self.download = Some(atualizador::baixar_em_segundo_plano(release));
+            self.download_mensagem = Some("começando".into());
         }
 
         // Acompanha o progresso do download.
@@ -302,24 +331,31 @@ impl TranalApp {
         if download_concluido {
             self.download = None;
             if let Some(erro) = download_erro {
+                atualizador::registrar_no_log(&format!("Download falhou: {erro}"));
                 self.download_mensagem = Some(format!("Falha: {erro}"));
-            } else if !self.troca_agendada {
-                let caminho = atualizador::caminho_arquivo_novo();
-                match atualizador::iniciar_troca(&caminho) {
-                    Ok(()) => {
-                        self.troca_agendada = true;
-                        atualizador::registrar_no_log(
-                            "Troca agendada. Fechando o app automaticamente.",
-                        );
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    Err(e) => {
-                        self.download_mensagem =
-                            Some(format!("Não consegui agendar a troca: {e}"));
-                        atualizador::registrar_no_log(&format!(
-                            "Falha ao agendar troca: {e}"
-                        ));
-                    }
+            } else {
+                self.download_mensagem = Some("pronto".into());
+            }
+        }
+
+        // Setup baixado: roda silencioso e fecha o app. O Setup reabre o app
+        // no fim. Nunca no meio de um alarme tocando nem com o editor aberto
+        // (o dono perderia o que estava digitando).
+        let pronto = self.download_mensagem.as_deref() == Some("pronto");
+        if pronto && !self.troca_agendada && self.tocando.is_none() && self.editor.is_none() {
+            // Janela fora de foco (escondida na bandeja, quase sempre): o app
+            // reaberto volta escondido também.
+            let minimizado = !ctx.input(|i| i.viewport().focused.unwrap_or(false));
+            match atualizador::rodar_setup(&atualizador::caminho_setup(), minimizado) {
+                Ok(()) => {
+                    self.troca_agendada = true;
+                    atualizador::registrar_no_log("Setup lançado. Fechando o app para a troca.");
+                    let _ = self.comp.salvar();
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                Err(e) => {
+                    atualizador::registrar_no_log(&format!("Não consegui rodar o Setup: {e}"));
+                    self.download_mensagem = Some(format!("Falha: {e}"));
                 }
             }
         }
@@ -327,7 +363,7 @@ impl TranalApp {
 
     /// Desenha o banner de atualização disponível (entre o topo e o conteúdo).
     fn banner_atualizacao(&mut self, ui: &mut egui::Ui) {
-        if self.atualizacao_dispensada || self.release_nova.is_none() {
+        if self.release_nova.is_none() {
             return;
         }
 
@@ -358,7 +394,7 @@ impl TranalApp {
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.label(
-                            egui::RichText::new(format!("Atualização disponível — v{}", versao.completa()))
+                            egui::RichText::new(format!("Atualizando para a v{}", versao.completa()))
                                 .color(Tema::TEXTO)
                                 .size(13.0)
                                 .strong(),
@@ -372,24 +408,25 @@ impl TranalApp {
 
                     ui::empurra_para_direita(ui, 200.0);
 
-                    if self.download.is_some() {
-                        if let Some(msg) = &self.download_mensagem {
-                            ui.label(
-                                egui::RichText::new(format!("Baixando… {msg}"))
-                                    .color(Tema::TEXTO_FRACO)
-                                    .size(12.0),
-                            );
+                    // Tudo automático: o banner só conta o que está acontecendo.
+                    let estado = match self.download_mensagem.as_deref() {
+                        _ if self.download.is_some() => format!(
+                            "Baixando… {}",
+                            self.download_mensagem.as_deref().unwrap_or("")
+                        ),
+                        Some("pronto") => {
+                            "Instala ao fechar o editor ou quando o alarme parar.".into()
                         }
-                    } else {
-                        if ui::botao_primario(ui, "Atualizar").clicked() {
-                            self.download =
-                                Some(atualizador::baixar_em_segundo_plano(release));
+                        Some(msg) if msg.starts_with("Falha") => {
+                            format!("{msg} Nova tentativa em até 1 h.")
                         }
-                        ui.add_space(4.0);
-                        if ui::botao_fantasma(ui, "Depois").clicked() {
-                            self.atualizacao_dispensada = true;
-                        }
-                    }
+                        _ => String::new(),
+                    };
+                    ui.label(
+                        egui::RichText::new(estado)
+                            .color(Tema::TEXTO_FRACO)
+                            .size(12.0),
+                    );
                 });
             });
         ui.add_space(ui::espaco::M);

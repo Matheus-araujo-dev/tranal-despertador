@@ -12,8 +12,16 @@ use crate::model::{Preset, SoundChoice};
 
 /// Executa os modos de linha de comando. Devolve `true` se algum modo foi pedido.
 pub fn executar(args: &[String]) -> bool {
+    // `--versao`: o CI confere que o binário saiu com o número da release.
+    if args.iter().any(|a| a == "--versao") {
+        println!("{}", crate::atualizador::Versao::do_app());
+        return true;
+    }
+    // `--atualizar` era o modo de troca do atualizador antigo (v0.3/v0.4), que
+    // trocava o .exe no lugar. Agora quem troca é o Setup; um app velho que
+    // ainda chame este modo não deve abrir uma segunda janela.
     if args.iter().any(|a| a == "--atualizar") {
-        return crate::atualizador::executar_troca(args);
+        return true;
     }
     if args.iter().any(|a| a == "--forcar-volume") {
         return forcar_volume(args);
