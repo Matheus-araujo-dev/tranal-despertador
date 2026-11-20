@@ -250,7 +250,7 @@ impl TranalApp {
     }
 
     /// Processa o resultado da checagem de atualização (chamado a cada quadro).
-    fn processar_atualizacao(&mut self) {
+    fn processar_atualizacao(&mut self, ctx: &egui::Context) {
         // Checa se a thread de verificação mandou o resultado.
         if let Some(rx) = &self.rx_atualizacao
             && let Ok((versao, release)) = rx.try_recv()
@@ -289,13 +289,10 @@ impl TranalApp {
                 match atualizador::iniciar_troca(&caminho) {
                     Ok(()) => {
                         self.troca_agendada = true;
-                        self.download_mensagem = Some(
-                            "Pronto. Feche o TRANAL DESPERTADOR para concluir a atualização."
-                                .into(),
-                        );
                         atualizador::registrar_no_log(
-                            "Troca agendada. Esperando o app fechar.",
+                            "Troca agendada. Fechando o app automaticamente.",
                         );
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     Err(e) => {
                         self.download_mensagem =
@@ -321,32 +318,45 @@ impl TranalApp {
 
         egui::Frame::new()
             .fill(Tema::PAINEL)
-            .stroke(egui::Stroke::new(1.0, Tema::ACCENT))
+            .stroke(egui::Stroke::new(1.0, Tema::BORDA))
             .corner_radius(ui::raio(ui::raio::CARTAO))
-            .inner_margin(egui::Margin::symmetric(16, 12))
+            .inner_margin(egui::Margin::symmetric(20, 16))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Versão {} disponível ({tamanho})",
-                            versao.completa()
-                        ))
-                        .color(Tema::TEXTO)
-                        .size(13.0),
+                    ui.spacing_mut().item_spacing.x = 8.0;
+
+                    // Indicador de cor accent (ponto laranja)
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(8.0, 8.0),
+                        egui::Sense::hover(),
+                    );
+                    ui.painter().circle_filled(
+                        rect.center(),
+                        4.0,
+                        Tema::ACCENT,
                     );
 
-                    ui::empurra_para_direita(ui, 180.0);
-
-                    if self.troca_agendada {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
                         ui.label(
-                            egui::RichText::new("Feche o app para concluir")
-                                .color(Tema::TEXTO_FRACO)
-                                .size(12.0),
+                            egui::RichText::new(format!("Atualização disponível — v{}", versao.completa()))
+                                .color(Tema::TEXTO)
+                                .size(13.0)
+                                .strong(),
                         );
-                    } else if self.download.is_some() {
+                        ui.label(
+                            egui::RichText::new(format!("{} · {}", release.titulo, tamanho))
+                                .color(Tema::TEXTO_FRACO)
+                                .size(11.5),
+                        );
+                    });
+
+                    ui::empurra_para_direita(ui, 200.0);
+
+                    if self.download.is_some() {
                         if let Some(msg) = &self.download_mensagem {
                             ui.label(
-                                egui::RichText::new(msg)
+                                egui::RichText::new(format!("Baixando… {msg}"))
                                     .color(Tema::TEXTO_FRACO)
                                     .size(12.0),
                             );
@@ -356,13 +366,14 @@ impl TranalApp {
                             self.download =
                                 Some(atualizador::baixar_em_segundo_plano(release));
                         }
+                        ui.add_space(4.0);
                         if ui::botao_fantasma(ui, "Depois").clicked() {
                             self.atualizacao_dispensada = true;
                         }
                     }
                 });
             });
-        ui.add_space(ui::espaco::S);
+        ui.add_space(ui::espaco::M);
     }
 
     /// Grava o arquivo de dados (so os despertadores do dono entram nele).
@@ -2203,9 +2214,9 @@ impl eframe::App for TranalApp {
             // O flag so e consumido quando o fechamento chegou de verdade:
             // ai o "Sair" da bandeja encerra o app em vez de minimiza-lo.
             let saiu_da_bandeja = tray::sair_pedido();
-            if !saiu_da_bandeja && !self.comp.travar().settings.sair_ao_fechar {
+            if !saiu_da_bandeja && !self.troca_agendada && !self.comp.travar().settings.sair_ao_fechar {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                 self.mensagem = None;
                 self.alerta = None;
             }
@@ -2227,7 +2238,7 @@ impl eframe::App for TranalApp {
         self.sincronizar_cache();
 
         // Processa o resultado da checagem de atualização / download.
-        self.processar_atualizacao();
+        self.processar_atualizacao(&ctx);
 
         // O proximo despertador: recalcula só se os alarmes mudaram
         // ou se passou mais de 1 segundo (o schedule depende da hora).
