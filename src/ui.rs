@@ -820,7 +820,7 @@ pub fn seletor_multiplo(ui: &mut Ui, opcoes: &[&str], marcados: &[bool]) -> Opti
             let (ret, resposta) = ui.allocate_exact_size(Vec2::new(largura, altura), Sense::click());
             let ativo = marcados.get(i).copied().unwrap_or(false);
             let fundo = if ativo {
-                Tema::ACCENT_FORTE
+                Tema::TEXTO
             } else if resposta.hovered() {
                 Tema::PAINEL_ALTO
             } else {
@@ -835,7 +835,7 @@ pub fn seletor_multiplo(ui: &mut Ui, opcoes: &[&str], marcados: &[bool]) -> Opti
                     egui::StrokeKind::Middle,
                 );
             }
-            let cor = if ativo { Color32::WHITE } else { Tema::TEXTO_FRACO };
+            let cor = if ativo { Tema::TINTA } else { Tema::TEXTO_FRACO };
             ui.painter().text(
                 ret.center(),
                 Align2::CENTER_CENTER,
