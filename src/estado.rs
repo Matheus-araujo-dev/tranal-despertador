@@ -26,6 +26,10 @@ pub struct Compartilhado {
     /// valor que tinha quando o alarme começou a tocar: se mudou, o dono
     /// dispensou e não vale a pena insistir.
     pub paradas: AtomicU64,
+    /// Contador de geração: incrementa sempre que os alarmes ou sonecas mudam.
+    /// A UI compara com a última geração que leu para evitar mutex+clone
+    /// repetidos a cada frame.
+    pub geracao: AtomicU64,
 }
 
 /// Os dados do app.
@@ -103,6 +107,7 @@ impl Compartilhado {
             estado: Mutex::new(Estado::new(alarms, settings)),
             condvar: Condvar::new(),
             paradas: AtomicU64::new(0),
+            geracao: AtomicU64::new(1),
         }
     }
 
@@ -113,7 +118,13 @@ impl Compartilhado {
 
     /// Acorda o agendador: o estado mudou e ele precisa recalcular a hora.
     pub fn notificar(&self) {
+        self.geracao.fetch_add(1, Ordering::SeqCst);
         self.condvar.notify_all();
+    }
+
+    /// A geração atual (leitura atômica sem lock).
+    pub fn geracao(&self) -> u64 {
+        self.geracao.load(Ordering::SeqCst)
     }
 
     /// O dono mandou parar o alarme: as tentativas em curso são abandonadas.

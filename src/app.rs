@@ -125,6 +125,14 @@ pub struct TranalApp {
     biblioteca: Vec<AudioDaBiblioteca>,
     /// Cache dos volumes das saídas de áudio (evita enumeração COM ao abrir o editor).
     volumes_saidas: Vec<(String, u8)>,
+    /// Última geração lida do estado compartilhado.
+    geracao_lida: u64,
+    /// Cache dos alarmes (evita mutex+clone a cada frame).
+    alarmes_cache: Vec<Alarm>,
+    /// Geração em que o proximo_disparo foi calculado.
+    proximo_geracao: u64,
+    /// Instante em que o proximo_disparo foi calculado (o schedule depende da hora).
+    proximo_calculado_em: Instant,
     /// O ícone na bandeja do Windows (vive enquanto o app vive).
     ///
     /// O `TrayIcon` tem que ficar guardado: se for solto, o Windows remove o
@@ -146,7 +154,7 @@ impl TranalApp {
         }
 
         // Interface e agendador olham para o mesmo estado: uma copia so.
-        let comp = Arc::new(estado::Compartilhado::novo(alarms, settings));
+        let comp = Arc::new(estado::Compartilhado::novo(alarms.clone(), settings));
         let agendador = iniciar_agendador(cc.egui_ctx.clone(), comp.clone());
 
         Self {
@@ -173,12 +181,27 @@ impl TranalApp {
                     (s.nome, (volume * 100.0).round() as u8)
                 })
                 .collect(),
+            geracao_lida: 1,
+            alarmes_cache: alarms,
+            proximo_geracao: 0,
+            proximo_calculado_em: Instant::now(),
         }
     }
 
     /// Os despertadores do dono (o que a lista mostra).
-    fn alarms(&self) -> Vec<Alarm> {
-        self.comp.travar().alarms.clone()
+    /// Usa o cache local — só trava o mutex se a geração mudou.
+    fn alarms(&self) -> &[Alarm] {
+        &self.alarmes_cache
+    }
+
+    /// Atualiza os caches se o estado compartilhado mudou.
+    fn sincronizar_cache(&mut self) {
+        let g = self.comp.geracao();
+        if g != self.geracao_lida {
+            let estado = self.comp.travar();
+            self.alarmes_cache = estado.alarms.clone();
+            self.geracao_lida = g;
+        }
     }
 
     /// Avisa o agendador que o estado mudou: ele recalcula a proxima hora.
@@ -417,9 +440,9 @@ impl TranalApp {
     }
 
     fn coluna_alarmes(&mut self, ui: &mut egui::Ui, altura: f32) {
-        // Copia para desenhar: a interface nao segura o estado travado
-        // enquanto monta os cartoes.
-        let alarms = self.alarms();
+        // Copia para desenhar: a closure precisa de &mut self para montar
+        // os cartões, então copiamos o cache (barato: já é local).
+        let alarms = self.alarmes_cache.clone();
 
         ui.allocate_ui_with_layout(
             egui::Vec2::new(ui.available_width(), altura),
@@ -2038,9 +2061,20 @@ impl eframe::App for TranalApp {
             self.mostrar_alarme(&id, tocou, avisos);
         }
 
-        // O proximo despertador: o mesmo que o agendador vai tocar.
-        let proximo = self.comp.travar().proximo_disparo(Local::now());
-        self.proximo = proximo;
+        // Atualiza os caches se o estado mudou (uma leitura atômica;
+        // só trava o mutex quando os alarmes realmente mudaram).
+        self.sincronizar_cache();
+
+        // O proximo despertador: recalcula só se os alarmes mudaram
+        // ou se passou mais de 1 segundo (o schedule depende da hora).
+        let g = self.comp.geracao();
+        if g != self.proximo_geracao
+            || self.proximo_calculado_em.elapsed() > Duration::from_secs(1)
+        {
+            self.proximo = self.comp.travar().proximo_disparo(Local::now());
+            self.proximo_geracao = g;
+            self.proximo_calculado_em = Instant::now();
+        }
 
         self.desenhar(ui);
 
