@@ -4,7 +4,7 @@ Despertador desktop para **Windows 10/11**, escrito em **Rust**. Interface dark,
 feita para ser usada em um clique, e leve: o binário é nativo (sem navegador
 embarcado) e o agendamento **dorme** até o próximo evento.
 
-![Interface principal](docs/captura-interface-nova.png)
+![Interface principal](docs/captura-layout-v5.png)
 
 ## O que ele faz
 
@@ -25,8 +25,53 @@ embarcado) e o agendamento **dorme** até o próximo evento.
   preenchido quando você clica em “Novo despertador”.
 - **Continua tocando com a janela fechada** (a janela minimiza; o app segue
   rodando).
+- **Fica na bandeja do Windows**: o ícone do despertador laranja fica na área
+  de notificação (o app se promove sozinho — o Windows 11 esconde ícone
+  novo). Clique esquerdo abre a janela; clique direito abre o menu
+  (“Abrir o Tranal” / “Sair”).
+- **Instalador**: um comando instala o app no PC, cria os atalhos e liga o
+  início automático.
+- **Interface com respiro**: nada encosta na borda da janela. A página tem
+  32 px de margem, os cartões têm 20 px de respiro interno e a ação
+  principal (“+ Novo despertador”) fica na linha do título da página. O
+  layout segue a referência do **Tranal Sentinel** (cards com `Padding 20`,
+  hierarquia H1/Hero/Label/Sub, números em monoespaçada), com a paleta laranja
+  do app, que já passa na WCAG AA.
+- **Cartão do despertador em três linhas**: a hora com o nome e o
+  interruptor, as etiquetas (“Todo dia”, o som, “100% no aparelho”, o
+  desafio) e os botões de ação (“Repetir amanhã”, “Editar”, “Testar”, “×”)
+  — cada grupo na sua linha, sem nada por cima de nada.
+- **Contraste medido por teste**: um teste do próprio app calcula a razão de
+  contraste de **todos** os pares de cor em uso (texto ≥ 4,5:1 e borda de
+  etiqueta ≥ 3:1, como manda a WCAG AA). Ele já pegou uma violação real — o
+  *hover* do botão principal, que estava em 4,14:1 — e o laranja foi
+  ajustado para 4,70:1.
 
-## Como rodar
+## Instalar
+
+```powershell
+.\scripts\instalar.ps1
+```
+
+O instalador é **por usuário** (não precisa de administrador e não invade
+“Program Files”):
+
+| | |
+|---|---|
+| Programa | `%LOCALAPPDATA%\Programs\Tranal Despertador` |
+| Atalho | Menu Iniciar e Área de trabalho |
+| Início automático | ligado, com o app já minimizado |
+| Dados do dono | `%APPDATA%\Tranal Despertador` — **preservados** na reinstalação |
+
+Para desinstalar (os despertadores e os sons continuam no lugar):
+
+```powershell
+.\scripts\instalar.ps1 -Desinstalar
+```
+
+Com `-ApagarDados`, os dados do dono também são apagados.
+
+## Como rodar (desenvolvimento)
 
 ```powershell
 cargo run                 # debug
@@ -55,6 +100,9 @@ O binário é único: não tem servidor, nem banco, nem serviço. Os dados ficam
 | `src/tones.rs` | presets sintetizados e leitura de arquivo (via `symphonia`) |
 | `src/arquivos.rs` | seletor de arquivos **dentro do app** (não usa o explorer do Windows) |
 | `src/device_volume.rs` | volume do aparelho (Core Audio) e início automático com o Windows |
+| `src/tray.rs` | ícone na bandeja do Windows, promoção automática e o clique que reabre a janela |
+| `src/tray_menu.rs` | o menu de contexto da bandeja (nativo do Windows, ancorado acima da barra de tarefas) |
+| `src/icone.rs` | o desenho do despertador laranja (bandeja, barra de título e `.ico` dos atalhos) |
 | `src/model.rs` | modelo de dados (JSON legível) |
 | `src/hora.rs` | interpretação do horário digitado |
 
@@ -63,10 +111,28 @@ Decisões estruturais, com o porquê de cada escolha: [`docs/SPEC.md`](docs/SPEC
 
 ## Licenças
 
-O app é do dono e o repositório é **privado**. As dependências são MIT/Apache,
-com uma exceção: [`symphonia`](https://github.com/pdeljanov/Symphonia) é
-**MPL-2.0** (copyleft de arquivo, não GPL/AGPL) e é usada só para **ler**
-arquivos de áudio.
+O app é do dono e o repositório é **privado**. As dependências foram auditadas
+com `cargo metadata` (**357** pacotes no grafo completo, **140** no binário do
+Windows):
+
+| Licença | Quem usa |
+|---|---|
+| MIT, Apache-2.0, BSD-2/3, ISC, Zlib, 0BSD, Unlicense | o grosso: `egui`, `eframe`, `winit`, `cpal`, `windows`, `serde`, `chrono`, `dirs`, `winreg`… |
+| **MPL-2.0** (copyleft de arquivo) | **symphonia** e suas crates (`symphonia-core`, `symphonia-common`, `symphonia-metadata`, `symphonia-bundle-mp3/flac`, `symphonia-codec-pcm`, `symphonia-format-ogg/riff`) — usada só para **ler** WAV/MP3/FLAC/OGG |
+| MIT / Apache-2.0 / OFL-1.1 / Ubuntu-font-1.0 | `epaint_default_fonts` (as fontes padrão do egui) |
+| BSL-1.0 | `clipboard-win`, `error-code` |
+| Unicode-3.0 | `unicode-ident`, `unicode-properties` |
+| **Apache-2.0 OU GPL-2.0-only** (dupla) | `self_cell` — o app usa a opção **Apache-2.0**, a permissiva |
+| MIT OU Apache-2.0 OU LGPL-2.1-or-later | `r-efi` — entra só como *build-dependency* do `cc`, ou seja, **fora do processo** do app, e sob a opção permissiva |
+
+**Nada GPL/AGPL no processo** (regra D012 do `AGENTS.md`): nenhuma crate é
+GPL-only nem AGPL, e as duas opções dupla/licença copyleft acima são consumidas
+sob a opção permissiva.
+
+O que a MPL-2.0 do symphonia exige, na prática: se o **arquivo-fonte do
+symphonia** for modificado, essas modificações precisam ser publicadas. O
+app não modifica o symphonia — só o usa como biblioteca. O código-fonte do
+symphonia vem junto no crate (e no `Cargo.lock` deste repositório).
 
 ## Regras do repositório
 
