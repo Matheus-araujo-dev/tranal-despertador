@@ -13,8 +13,8 @@ use std::sync::{Mutex, OnceLock};
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{
-    eConsole, eRender, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE,
-    DEVICE_STATEMASK_ALL,
+    eConsole, eRender, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
+    DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
@@ -62,7 +62,7 @@ fn enumerar() -> Result<Vec<Endpoint>, String> {
         let enumerador: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
         let colecao = enumerador
-            .EnumAudioEndpoints(eRender, DEVICE_STATE(DEVICE_STATEMASK_ALL))
+            .EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
             .map_err(|e| e.to_string())?;
         let total = colecao.GetCount().map_err(|e| e.to_string())?;
 

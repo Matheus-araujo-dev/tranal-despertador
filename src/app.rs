@@ -123,6 +123,8 @@ pub struct TranalApp {
     destino_selecao: DestinoSelecao,
     /// Os áudios que o dono adicionou ao app (tela de configurações).
     biblioteca: Vec<AudioDaBiblioteca>,
+    /// Cache dos volumes das saídas de áudio (evita enumeração COM ao abrir o editor).
+    volumes_saidas: Vec<(String, u8)>,
     /// O ícone na bandeja do Windows (vive enquanto o app vive).
     ///
     /// O `TrayIcon` tem que ficar guardado: se for solto, o Windows remove o
@@ -164,6 +166,13 @@ impl TranalApp {
             destino_selecao: DestinoSelecao::Editor,
             biblioteca: tones::biblioteca(),
             bandeja: None,
+            volumes_saidas: device_volume::saidas_com_volume()
+                .into_iter()
+                .map(|s| {
+                    let volume = s.volume.unwrap_or(0.0);
+                    (s.nome, (volume * 100.0).round() as u8)
+                })
+                .collect(),
         }
     }
 
@@ -655,15 +664,7 @@ impl TranalApp {
             }
         };
 
-        // Os volumes das saídas: UMA enumeração só do Core Audio (antes eram
-        // uma por saída, e o editor demorava uma eternidade para abrir).
-        let volumes_saidas = device_volume::saidas_com_volume()
-            .into_iter()
-            .map(|s| {
-                let volume = s.volume.unwrap_or(0.0);
-                (s.nome, (volume * 100.0).round() as u8)
-            })
-            .collect();
+        let volumes_saidas = self.volumes_saidas.clone();
 
         let hora = rascunho.hour;
         let minuto = rascunho.minute;
@@ -677,7 +678,7 @@ impl TranalApp {
             erro_hora: None,
             duracao_som: None,
             volumes_saidas,
-            biblioteca: tones::biblioteca(),
+            biblioteca: self.biblioteca.clone(),
         });
     }
 
