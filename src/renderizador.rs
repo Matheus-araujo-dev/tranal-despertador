@@ -56,11 +56,42 @@ impl Textura {
     }
 }
 
+/// sRGB (0–255) → linear (0.0–1.0).
+fn criar_tabela_s2l() -> [f32; 256] {
+    let mut t = [0.0f32; 256];
+    for i in 0..256 {
+        let s = i as f32 / 255.0;
+        t[i] = if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        };
+    }
+    t
+}
+
+/// linear (0.0–1.0, quantizado em 4096 passos) → sRGB (0–255).
+fn criar_tabela_l2s() -> [u8; 4096] {
+    let mut t = [0u8; 4096];
+    for i in 0..4096 {
+        let l = i as f32 / 4095.0;
+        let s = if l <= 0.0031308 {
+            l * 12.92
+        } else {
+            1.055 * l.powf(1.0 / 2.4) - 0.055
+        };
+        t[i] = (s * 255.0 + 0.5).min(255.0) as u8;
+    }
+    t
+}
+
 pub struct Renderizador {
     largura: u32,
     altura: u32,
     buffer: Vec<u32>,
     texturas: HashMap<TextureId, Textura>,
+    s2l: [f32; 256],
+    l2s: [u8; 4096],
 }
 
 impl Renderizador {
@@ -70,6 +101,8 @@ impl Renderizador {
             altura,
             buffer: vec![0; (largura * altura) as usize],
             texturas: HashMap::new(),
+            s2l: criar_tabela_s2l(),
+            l2s: criar_tabela_l2s(),
         }
     }
 
@@ -130,6 +163,34 @@ impl Renderizador {
 
     pub fn pixels(&self) -> &[u32] {
         &self.buffer
+    }
+
+    #[inline]
+    fn misturar(&self, dst_packed: u32, src: Color32) -> u32 {
+        let sa = src.a() as f32 / 255.0;
+        let inv = 1.0 - sa;
+
+        let sr = self.s2l[src.r() as usize];
+        let sg = self.s2l[src.g() as usize];
+        let sb = self.s2l[src.b() as usize];
+
+        let dr = self.s2l[((dst_packed >> 16) & 0xFF) as usize];
+        let dg = self.s2l[((dst_packed >> 8) & 0xFF) as usize];
+        let db = self.s2l[(dst_packed & 0xFF) as usize];
+
+        let r = sr * sa + dr * inv;
+        let g = sg * sa + dg * inv;
+        let b = sb * sa + db * inv;
+
+        let ri = (r * 4095.0) as usize;
+        let gi = (g * 4095.0) as usize;
+        let bi = (b * 4095.0) as usize;
+
+        let ro = self.l2s[ri.min(4095)] as u32;
+        let go = self.l2s[gi.min(4095)] as u32;
+        let bo = self.l2s[bi.min(4095)] as u32;
+
+        ro << 16 | go << 8 | bo
     }
 
     fn rasterizar_mesh(&mut self, mesh: &egui::epaint::Mesh, clip: Rect, escala: f32) {
@@ -198,7 +259,7 @@ impl Renderizador {
                     if a == 255 {
                         self.buffer[idx] = cor_para_rgb(cor);
                     } else {
-                        self.buffer[idx] = misturar(self.buffer[idx], cor);
+                        self.buffer[idx] = self.misturar(self.buffer[idx], cor);
                     }
                 }
             }
@@ -244,17 +305,4 @@ fn interpolar_cor(
 #[inline]
 fn cor_para_rgb(c: Color32) -> u32 {
     (c.r() as u32) << 16 | (c.g() as u32) << 8 | c.b() as u32
-}
-
-#[inline]
-fn misturar(dst_packed: u32, src: Color32) -> u32 {
-    let sa = src.a() as u32;
-    let inv = 255 - sa;
-    let dr = (dst_packed >> 16) & 0xFF;
-    let dg = (dst_packed >> 8) & 0xFF;
-    let db = dst_packed & 0xFF;
-    let r = (src.r() as u32 * sa + dr * inv) / 255;
-    let g = (src.g() as u32 * sa + dg * inv) / 255;
-    let b = (src.b() as u32 * sa + db * inv) / 255;
-    r << 16 | g << 8 | b
 }
