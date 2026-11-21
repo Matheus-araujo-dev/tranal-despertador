@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Datelike, Local, Timelike};
-use eframe::egui;
+use egui;
 
 use crate::atualizador;
 use crate::audio::{self, Saida};
@@ -162,8 +162,8 @@ pub struct TranalApp {
 
 impl TranalApp {
     /// Cria o app carregando os dados salvos.
-    pub fn novo(cc: &eframe::CreationContext) -> Self {
-        ui::aplicar(&cc.egui_ctx);
+    pub fn novo(ctx: &egui::Context) -> Self {
+        ui::aplicar(ctx);
         let (mut alarms, settings) = storage::carregar();
         let saidas = audio::listar_saidas();
 
@@ -175,7 +175,7 @@ impl TranalApp {
 
         // Interface e agendador olham para o mesmo estado: uma copia so.
         let comp = Arc::new(estado::Compartilhado::novo(alarms.clone(), settings));
-        let agendador = iniciar_agendador(cc.egui_ctx.clone(), comp.clone());
+        let agendador = iniciar_agendador(ctx.clone(), comp.clone());
 
         let mut app = Self {
             comp,
@@ -219,7 +219,7 @@ impl TranalApp {
 
         // Checagem de atualização em segundo plano (ao abrir e de hora em hora).
         if app.atualiza_sozinho {
-            app.iniciar_checagem_atualizacao(&cc.egui_ctx);
+            app.iniciar_checagem_atualizacao(ctx);
         }
 
         app
@@ -2250,8 +2250,8 @@ fn iniciar_som_do_alarme(alarme: &Alarm) -> (bool, Vec<String>) {
     }
 }
 
-impl eframe::App for TranalApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+impl TranalApp {
+    pub fn atualizar(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
 
         // A bandeja do Windows nasce no primeiro quadro: o Windows exige que
@@ -2267,8 +2267,6 @@ impl eframe::App for TranalApp {
         // janela e fechada" — e o "Sair" do menu da bandeja.
         let fechar_foi_pedido = ctx.input(|i| i.viewport().close_requested());
         if fechar_foi_pedido {
-            // O flag so e consumido quando o fechamento chegou de verdade:
-            // ai o "Sair" da bandeja encerra o app em vez de minimiza-lo.
             let saiu_da_bandeja = tray::sair_pedido();
             if !saiu_da_bandeja && !self.troca_agendada && !self.comp.travar().settings.sair_ao_fechar {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -2278,8 +2276,7 @@ impl eframe::App for TranalApp {
             }
         }
 
-        // Eventos do agendador. O som ja comecou na thread do agendador: aqui
-        // so aparece o painel do alarme.
+        // Eventos do agendador.
         let mut disparos: Vec<(String, bool, Vec<String>)> = Vec::new();
         while let Ok(evento) = self.agendador.eventos.try_recv() {
             let EventoAgendador::Disparo { id, tocou, avisos } = evento;
@@ -2289,15 +2286,9 @@ impl eframe::App for TranalApp {
             self.mostrar_alarme(&id, tocou, avisos);
         }
 
-        // Atualiza os caches se o estado mudou (uma leitura atômica;
-        // só trava o mutex quando os alarmes realmente mudaram).
         self.sincronizar_cache();
-
-        // Processa o resultado da checagem de atualização / download.
         self.processar_atualizacao(&ctx);
 
-        // O proximo despertador: recalcula só se os alarmes mudaram
-        // ou se passou mais de 1 segundo (o schedule depende da hora).
         let g = self.comp.geracao();
         if g != self.proximo_geracao
             || self.proximo_calculado_em.elapsed() > Duration::from_secs(1)
@@ -2309,12 +2300,10 @@ impl eframe::App for TranalApp {
 
         self.desenhar(ui);
 
-        // Atualiza o relógio sem trabalho pesado (meio segundo é o bastante
-        // para o relógio não "pular").
         ctx.request_repaint_after(Duration::from_millis(500));
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    pub fn ao_sair(&mut self) {
         audio::parar_global();
         // Deixa o volume do PC como estava: sem isso, fechar o app durante o
         // alarme deixaria todas as saidas em 100% para sempre.

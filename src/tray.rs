@@ -8,7 +8,7 @@
 //! Duas coisas que o Windows exige e que valem saber:
 //!
 //! - o ícone tem que ser criado **na thread que tem o event loop** (a thread
-//!   principal, a do winit/eframe). Por isso a criação acontece no primeiro
+//!   principal, a do winit). Por isso a criação acontece no primeiro
 //!   quadro da interface;
 //! - os **eventos** (clique no ícone, item do menu) podem ser lidos por outra
 //!   thread qualquer. Por isso o menu funciona mesmo com a janela minimizada,
@@ -329,14 +329,8 @@ pub fn icone() -> (Vec<u8>, u32) {
     (crate::icone::desenhar(64), 64)
 }
 
-/// O mesmo desenho, no formato que o egui usa para o icone da janela.
-pub fn icone_da_janela() -> egui::IconData {
-    let (rgba, lado) = icone();
-    egui::IconData {
-        rgba,
-        width: lado,
-        height: lado,
-    }
+pub fn icone_bruto() -> (Vec<u8>, u32) {
+    icone()
 }
 
 #[cfg(test)]

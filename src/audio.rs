@@ -14,7 +14,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, Device, FromSample, SampleFormat, SizedSample, Stream};
 
 use crate::model::SoundChoice;
-use crate::tones::{self, Faixa};
+use crate::tones::{self, i16_para_f32, Faixa};
 
 /// Uma saída de áudio disponível no sistema.
 #[derive(Clone, Debug, PartialEq)]
@@ -166,6 +166,11 @@ pub fn tocar(
 
     let mut threads = Vec::new();
 
+    // Cache de faixas por taxa: dispositivos com a mesma taxa compartilham o
+    // mesmo Arc<Faixa> em vez de clonar/reamostrar uma cópia para cada um.
+    let mut faixas_por_taxa: std::collections::HashMap<u32, Arc<Faixa>> =
+        std::collections::HashMap::new();
+
     // Abertura sequencial: um dispositivo por vez, no thread principal.
     for device in alvos {
         let nome = nome_do_dispositivo(&device);
@@ -181,20 +186,28 @@ pub fn tocar(
             sample_rate: suportado.sample_rate(),
             buffer_size: tamanho_de_buffer(suportado.buffer_size()),
         };
-        let taxa = config.sample_rate;
-        let faixa = match preparar_faixa(escolha, taxa) {
-            Ok(f) => f,
-            Err(e) => {
-                registrar(&erros, format!("{nome}: {e}"));
-                continue;
+        let taxa_hz = config.sample_rate;
+        let faixa = if let Some(cached) = faixas_por_taxa.get(&taxa_hz) {
+            Arc::clone(cached)
+        } else {
+            match preparar_faixa(escolha, taxa_hz) {
+                Ok(f) => {
+                    let arc = Arc::new(f);
+                    faixas_por_taxa.insert(taxa_hz, Arc::clone(&arc));
+                    arc
+                }
+                Err(e) => {
+                    registrar(&erros, format!("{nome}: {e}"));
+                    continue;
+                }
             }
         };
 
         let stream = match suportado.sample_format() {
-            SampleFormat::I16 => abrir_com_reserva::<i16>(&device, config, faixa, ganho.clone(), parar.clone()),
-            SampleFormat::U16 => abrir_com_reserva::<u16>(&device, config, faixa, ganho.clone(), parar.clone()),
-            SampleFormat::F32 => abrir_com_reserva::<f32>(&device, config, faixa, ganho.clone(), parar.clone()),
-            SampleFormat::I32 => abrir_com_reserva::<i32>(&device, config, faixa, ganho.clone(), parar.clone()),
+            SampleFormat::I16 => abrir_com_reserva::<i16>(&device, config, Arc::clone(&faixa), ganho.clone(), parar.clone()),
+            SampleFormat::U16 => abrir_com_reserva::<u16>(&device, config, Arc::clone(&faixa), ganho.clone(), parar.clone()),
+            SampleFormat::F32 => abrir_com_reserva::<f32>(&device, config, Arc::clone(&faixa), ganho.clone(), parar.clone()),
+            SampleFormat::I32 => abrir_com_reserva::<i32>(&device, config, Arc::clone(&faixa), ganho.clone(), parar.clone()),
             outro => Err(format!("formato de áudio não suportado: {outro:?}")),
         };
         let stream = match stream {
@@ -256,11 +269,11 @@ fn registrar(erros: &Arc<Mutex<Vec<String>>>, mensagem: String) {
 fn abrir_com_reserva<T: SizedSample + FromSample<f32> + Send + 'static>(
     device: &Device,
     config: cpal::StreamConfig,
-    faixa: Faixa,
+    faixa: Arc<Faixa>,
     ganho: Arc<AtomicU32>,
     parar: Arc<AtomicBool>,
 ) -> Result<Stream, String> {
-    match abrir_stream::<T>(device, config, faixa.clone(), ganho.clone(), parar.clone()) {
+    match abrir_stream::<T>(device, config, Arc::clone(&faixa), ganho.clone(), parar.clone()) {
         Ok(s) => Ok(s),
         Err(primeiro) => {
             let mut config2 = config;
@@ -275,12 +288,12 @@ fn abrir_com_reserva<T: SizedSample + FromSample<f32> + Send + 'static>(
 fn abrir_stream<T: SizedSample + FromSample<f32> + Send + 'static>(
     device: &Device,
     config: cpal::StreamConfig,
-    faixa: Faixa,
+    faixa: Arc<Faixa>,
     ganho: Arc<AtomicU32>,
     parar: Arc<AtomicBool>,
 ) -> Result<Stream, String> {
     let canais = config.channels as usize;
-    let dados = Arc::new(faixa);
+    let dados = faixa;
     let pos = Arc::new(AtomicUsize::new(0));
     let pos_f = pos.clone();
     let ganho_f = ganho.clone();
@@ -315,6 +328,7 @@ fn abrir_stream<T: SizedSample + FromSample<f32> + Send + 'static>(
                     .get(canal_fonte)
                     .and_then(|canal| canal.get((inicio + q) % tamanho_fonte))
                     .copied()
+                    .map(i16_para_f32)
                     .unwrap_or(0.0);
                 saida[idx] = T::from_sample(amostra * g);
             }
