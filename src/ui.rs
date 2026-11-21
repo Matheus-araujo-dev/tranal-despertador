@@ -158,6 +158,25 @@ pub const ESTILO_HERO: &str = "hero";
 
 /// Aplica o visual dark do app.
 pub fn aplicar(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "ubuntu".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../assets/Ubuntu-Light.ttf"
+        ))),
+    );
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, "ubuntu".to_owned());
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .insert(0, "ubuntu".to_owned());
+    ctx.set_fonts(fonts);
+
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = Tema::FUNDO;
     visuals.window_fill = Tema::PAINEL;

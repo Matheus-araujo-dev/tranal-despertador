@@ -15,11 +15,15 @@ pub const DURACAO_MAXIMA_S: f32 = 120.0;
 /// Extensões que o app sabe decodificar.
 pub const EXTENSOES: &[&str] = &["wav", "mp3", "flac", "ogg", "oga"];
 
-/// Uma faixa de áudio em ponto flutuante, com 1 ou 2 canais.
+/// Uma faixa de áudio compacta (i16), com 1 ou 2 canais.
+///
+/// As amostras ficam em `i16` em vez de `f32`: metade da memória, sem perda
+/// audível para um despertador. A conversão para f32 acontece só no callback
+/// de áudio, amostra a amostra.
 #[derive(Clone, Debug)]
 pub struct Faixa {
     pub taxa: u32,
-    pub canais: Vec<Vec<f32>>,
+    pub canais: Vec<Vec<i16>>,
 }
 
 impl Faixa {
@@ -45,9 +49,9 @@ impl Faixa {
                 let i0 = pos.floor() as usize;
                 let i1 = (i0 + 1).min(n.saturating_sub(1));
                 let frac = (pos - i0 as f64) as f32;
-                let a = canal.get(i0).copied().unwrap_or(0.0);
-                let b = canal.get(i1).copied().unwrap_or(0.0);
-                saida.push(a + (b - a) * frac);
+                let a = i16_para_f32(canal.get(i0).copied().unwrap_or(0));
+                let b = i16_para_f32(canal.get(i1).copied().unwrap_or(0));
+                saida.push(f32_para_i16(a + (b - a) * frac));
             }
             canais.push(saida);
         }
@@ -58,8 +62,18 @@ impl Faixa {
     }
 }
 
+#[inline]
+pub fn f32_para_i16(v: f32) -> i16 {
+    (v.clamp(-1.0, 1.0) * 32767.0) as i16
+}
+
+#[inline]
+pub fn i16_para_f32(v: i16) -> f32 {
+    v as f32 / 32767.0
+}
+
 /// Envelope suave nas bordas para não estalar.
-fn suavizar(canais: &mut [Vec<f32>], amostras: usize) {
+fn suavizar(canais: &mut [Vec<i16>], amostras: usize) {
     for canal in canais.iter_mut() {
         let n = canal.len();
         if n == 0 {
@@ -68,9 +82,9 @@ fn suavizar(canais: &mut [Vec<f32>], amostras: usize) {
         let m = amostras.min(n / 2);
         for i in 0..m {
             let g = i as f32 / m as f32;
-            canal[i] *= g;
+            canal[i] = (canal[i] as f32 * g) as i16;
             let j = n - 1 - i;
-            canal[j] *= g;
+            canal[j] = (canal[j] as f32 * g) as i16;
         }
     }
 }
@@ -144,9 +158,12 @@ pub fn gerar_preset(preset: Preset, taxa: u32) -> Faixa {
         }
     }
 
-    let mut canais = vec![esquerda, direita];
-    suavizar(&mut canais, 128);
-    Faixa { taxa, canais }
+    let mut canais_i16: Vec<Vec<i16>> = vec![
+        esquerda.iter().map(|&v| f32_para_i16(v)).collect(),
+        direita.iter().map(|&v| f32_para_i16(v)).collect(),
+    ];
+    suavizar(&mut canais_i16, 128);
+    Faixa { taxa, canais: canais_i16 }
 }
 
 #[derive(Clone, Copy)]
@@ -265,13 +282,13 @@ pub fn ler_audio(caminho: &str) -> Result<Faixa, String> {
         return Err("Esse arquivo não tem amostras de áudio.".to_string());
     }
 
-    // Um vetor por canal.
-    let mut saida: Vec<Vec<f32>> = (0..canais)
+    // Um vetor por canal, já em i16.
+    let mut saida: Vec<Vec<i16>> = (0..canais)
         .map(|_| Vec::with_capacity(plano.len() / canais))
         .collect();
     for (i, v) in plano.iter().enumerate() {
         let valor = if v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
-        saida[i % canais].push(valor);
+        saida[i % canais].push(f32_para_i16(valor));
     }
 
     Ok(Faixa {
@@ -449,7 +466,7 @@ mod testes {
             let faixa = gerar_preset(preset, 48000);
             assert!(!faixa.canais.is_empty(), "{:?} sem canais", preset);
             assert!(faixa.canais[0].len() > 1000, "{:?} curto demais", preset);
-            let max = faixa.canais[0].iter().cloned().fold(0.0f32, f32::max);
+            let max = faixa.canais[0].iter().map(|&v| i16_para_f32(v)).fold(0.0f32, f32::max);
             assert!(max > 0.3, "{:?} sem amplitude", preset);
             assert!(max <= 1.0, "{:?} estourou o limite", preset);
         }
@@ -578,7 +595,7 @@ mod testes {
         assert_eq!(faixa.canais.len(), 1, "o mono continua com um canal");
         assert_eq!(faixa.canais[0].len(), 1000);
         assert!(
-            faixa.canais[0].iter().any(|v| *v != 0.0),
+            faixa.canais[0].iter().any(|&v| v != 0),
             "o canal do mono nao pode ficar mudo"
         );
     }
@@ -639,7 +656,7 @@ mod testes {
             "duracao inesperada: {}",
             faixa.duracao_s()
         );
-        let max = faixa.canais[0].iter().cloned().fold(0.0f32, f32::max);
+        let max = faixa.canais[0].iter().map(|&v| i16_para_f32(v)).fold(0.0f32, f32::max);
         assert!(max > 0.5, "o mp3 precisa ter amplitude (max {max})");
     }
 
@@ -649,7 +666,7 @@ mod testes {
         assert_eq!(faixa.canais.len(), 2);
         for (i, canal) in faixa.canais.iter().enumerate() {
             assert!(!canal.is_empty(), "canal {i} vazio");
-            let max = canal.iter().cloned().fold(0.0f32, f32::max);
+            let max = canal.iter().map(|&v| i16_para_f32(v)).fold(0.0f32, f32::max);
             assert!(max > 0.5, "canal {i} sem amplitude (max {max})");
         }
     }

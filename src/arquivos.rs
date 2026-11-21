@@ -11,8 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eframe::egui;
-use eframe::egui::Color32;
+use egui::Color32;
 
 use crate::ui::{self, Tema};
 
