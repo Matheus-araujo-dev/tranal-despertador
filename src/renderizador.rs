@@ -18,9 +18,41 @@ struct Textura {
 
 impl Textura {
     fn amostra(&self, u: f32, v: f32) -> Color32 {
-        let x = ((u * self.largura as f32) as i32).clamp(0, self.largura as i32 - 1) as u32;
-        let y = ((v * self.altura as f32) as i32).clamp(0, self.altura as i32 - 1) as u32;
-        self.pixels[(y * self.largura + x) as usize]
+        let fx = u * self.largura as f32 - 0.5;
+        let fy = v * self.altura as f32 - 0.5;
+
+        let x0 = fx.floor() as i32;
+        let y0 = fy.floor() as i32;
+
+        let sx = fx - x0 as f32;
+        let sy = fy - y0 as f32;
+
+        let lim_x = self.largura as i32 - 1;
+        let lim_y = self.altura as i32 - 1;
+        let x0c = x0.clamp(0, lim_x) as u32;
+        let y0c = y0.clamp(0, lim_y) as u32;
+        let x1c = (x0 + 1).clamp(0, lim_x) as u32;
+        let y1c = (y0 + 1).clamp(0, lim_y) as u32;
+
+        let w = self.largura;
+        let c00 = self.pixels[(y0c * w + x0c) as usize];
+        let c10 = self.pixels[(y0c * w + x1c) as usize];
+        let c01 = self.pixels[(y1c * w + x0c) as usize];
+        let c11 = self.pixels[(y1c * w + x1c) as usize];
+
+        let inv_sx = 1.0 - sx;
+        let inv_sy = 1.0 - sy;
+
+        let r = inv_sy * (inv_sx * c00.r() as f32 + sx * c10.r() as f32)
+              +     sy * (inv_sx * c01.r() as f32 + sx * c11.r() as f32);
+        let g = inv_sy * (inv_sx * c00.g() as f32 + sx * c10.g() as f32)
+              +     sy * (inv_sx * c01.g() as f32 + sx * c11.g() as f32);
+        let b = inv_sy * (inv_sx * c00.b() as f32 + sx * c10.b() as f32)
+              +     sy * (inv_sx * c01.b() as f32 + sx * c11.b() as f32);
+        let a = inv_sy * (inv_sx * c00.a() as f32 + sx * c10.a() as f32)
+              +     sy * (inv_sx * c01.a() as f32 + sx * c11.a() as f32);
+
+        Color32::from_rgba_unmultiplied(r as u8, g as u8, b as u8, a as u8)
     }
 }
 
